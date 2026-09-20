@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.DS_Store
+
+# OSM extracts and anything derived from them. Never commit these:
+# a 313 MB pbf in git history is unrecoverable without a rewrite.
+data/
+*.osm.pbf
+*.osm.bz2
+*.geojson
