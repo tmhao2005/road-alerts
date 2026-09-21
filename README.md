@@ -5,9 +5,9 @@
 A Vietnamese driving companion that tells you the legal speed limit on any road, by voice
 and on a glanceable screen, and gets more accurate every trip as drivers correct it.
 
-**Status: pre-code.** The data feasibility spike has run, the speed law has been read at
-source, and there is a clickable design prototype. No app code yet. The next piece of work
-is the statutory speed function (see [Next steps](#next-steps)).
+**Status: early.** The data feasibility spike has run, the speed law has been read at
+source, and the core speed function exists with a coordinate tester for TP.HCM. The next
+piece of work is an iPhone test app (see [Next steps](#next-steps)).
 
 ---
 
@@ -39,7 +39,8 @@ the way. The reasons are the point: when it's wrong, they show why.
 | [`docs/spike-brief.md`](docs/spike-brief.md) | What the data spike set out to answer |
 | [`docs/spike-results.md`](docs/spike-results.md) | The five spike numbers and what they imply |
 | This README | Everything learned since: the law, competitors, platforms, design |
-| [Design prototype](https://claude.ai/artifact/H5trR8fNJBfzKPX4e5CpoS) | Interactive HUD boards. Private until shared from the page's Share menu |
+| [`src/`](src) | The speed law, the đông dân cư guess, and map lookup, with tests |
+| [`tools/`](tools) | Data preparation and the coordinate tester |
 | [`CLAUDE.md`](CLAUDE.md) | Early thinking and working conventions. Treat as ideas, not settled decisions |
 
 ---
@@ -185,12 +186,13 @@ Only the first can fail *upward* — announcing 90 where the limit is 60.
 | | WYN (App Store) | Vietmap Live Pro | OSM, our starting point |
 |---|---:|---:|---:|
 | Speed cameras | 7,000+ | 10,000+ | 43 |
-| *Đông dân cư* zones | 8,500+ | — | 17 |
+| *Đông dân cư* entry/exit signs | 8,500+ (~4,000 boundaries) | — | 17 |
 | Speed limit signs | 14,000+ | — | sparse |
 | Price | free + IAP | ~169,000đ / 30 days | — |
 
 Their advantage is not software, it is a hand-surveyed database of exactly the three things
-open data lacks. The 8,500 surveyed zones are arguably a bigger asset than the cameras.
+open data lacks. The ~4,000 surveyed boundaries are arguably a bigger asset than the
+cameras.
 
 Openings:
 
@@ -267,10 +269,8 @@ One should be primary.
 
 ## Design direction
 
-Explored in the [prototype](https://claude.ai/artifact/H5trR8fNJBfzKPX4e5CpoS). Boards:
-*Ban ngày* (interactive trip), *Ranh giới đông dân cư* (drag across a boundary), *Ngã tư
-phía trước* (approach a junction), *Ban đêm*, *Chế độ nổi*, *Chạy nền trên từng nền tảng*,
-*Bốn mức tin cậy*, *Kiểm chứng*.
+Explored in a set of design mockups during planning, since retired. The decisions carry
+into the test app, where the screen is built from real map data.
 
 Decisions so far:
 
@@ -279,10 +279,10 @@ Decisions so far:
 - **Current speed is the largest thing on screen.** The limit sign is a smaller badge.
 - **The speed sign is always the real white-and-red sign**, never recoloured, because its
   shape is what makes it readable in a glance.
-- **Confidence is a coloured ring outside the sign**, plus a text label for colour-blind
-  drivers: green confirmed, amber from statute, blue driver-reported, grey unknown. Tested
-  against a dashed-ring alternative with peripheral blur; the dashed version became
-  indistinguishable, colour did not.
+- **Confidence is a small text label under the sign** ("Theo luật", "Đã xác nhận",
+  "Người dùng báo"), and a difference in the voice. Two ring designs were tried and
+  dropped: a dashed ring was unreadable at a glance, and a coloured outer ring looked
+  like a target.
 - **Red means one thing only: you are over the limit.** Confidence never uses red.
 - **When the limit is unknown, show no number and say nothing.** On cao tốc without sign
   data the law only gives 60–120.
@@ -294,9 +294,9 @@ Decisions so far:
 - **Draw only what the data supports.** No lane dividers where `lanes` is untagged; labels
   omitted when too small to read.
 
-Known issues in the prototype: road shapes are generated, not yet from real OSM geometry;
-the boundary line is drawn at full confidence even though it will usually be inferred;
-*Ban đêm* predates the latest layout.
+The animated road view and junction view (branch names and limits) wait until after the
+first test drive. They need real map geometry, and the first drive has one question to
+answer: is the number right?
 
 ---
 
@@ -310,15 +310,15 @@ the boundary line is drawn at full confidence even though it will usually be inf
 
 ## Next steps
 
-1. **Statutory speed function.** Pure, import-free module with a `node --test` suite,
-   encoding Bảng 1, Bảng 2 and Điều 7–9 above, including the edge cases the summaries get
-   wrong.
-2. ***Đông dân cư* inference module**, with its own confidence, built from
-   `landuse=residential`, `place` nodes, commune boundaries and road class.
-3. **Ground check on three real routes** — one urban, one quốc lộ, one cao tốc. Needs the
-   routes named.
-4. Wire the prototype's road renderer to real OSM geometry.
-5. Give the boundary line its own confidence encoding in the design.
+1. ~~Statutory speed function and đông dân cư guess~~ — done, with a coordinate tester.
+2. **iPhone test app** in Safari: GPS, Vietnamese voice, a simple screen, and one-tap
+   error logging for a passenger.
+3. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
+   QL13 near Bến Cát. After the 2025 ward mergers those stretches sit inside large
+   *phường*, so they are where the đông dân cư guess is weakest.
+4. **Decide** from the results: launch main roads on the guess, or pay for a survey of
+   main-road boundaries first.
+5. Road and junction views from real geometry, then the native app.
 
 ---
 
