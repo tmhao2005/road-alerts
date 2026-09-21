@@ -8,9 +8,21 @@ cd "$(dirname "$0")/.."
 mkdir -p data
 
 PBF=${PBF:-data/vietnam-latest.osm.pbf}
+
+# A header-only check passes on a truncated file, so read the whole thing. A dropped
+# connection otherwise leaves a file that looks present and fails later with
+# "unexpected EOF".
+if [ -f "$PBF" ] && ! osmium fileinfo -e "$PBF" >/dev/null 2>&1; then
+  echo "Existing $PBF is incomplete; downloading again."
+  rm -f "$PBF"
+fi
+
 if [ ! -f "$PBF" ]; then
   echo "Downloading Vietnam extract (~315 MB)..."
-  curl -L -o "$PBF" https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+  # Write to .part and rename only on success, so an interrupted download never
+  # masquerades as a finished one. -C - resumes a .part left by an earlier attempt.
+  curl -fL -C - -o "$PBF.part" https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+  mv "$PBF.part" "$PBF"
 fi
 
 # TP.HCM plus enough margin to cover the quốc lộ leaving it (QL1A, QL13, QL22, QL51),
