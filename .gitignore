@@ -8,3 +8,6 @@ data/
 *.osm.pbf
 *.osm.bz2
 *.geojson
+
+# Built test app (includes OSM-derived tiles); CI rebuilds it on every push.
+site/

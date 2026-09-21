@@ -1,0 +1,104 @@
+:root {
+  --bg: #F4F3F0;
+  --card: #FFFFFF;
+  --ink: #15161A;
+  --muted: #6B6D76;
+  --faint: #8A8C94;
+  --line: #E6E4DF;
+  --red: #D92B34;
+  --over: #C4271F;
+  --law-fg: #9A5200; --law-bg: #FDF0DC;
+  --sign-fg: #146B33; --sign-bg: #E3F5E9;
+  --unk-fg: #62656E; --unk-bg: #ECEBE7;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000; --card: #1C1C1E; --ink: #FFFFFF; --muted: #98989D; --faint: #8A8A8E; --line: #2C2C2E;
+    --over: #FF453A;
+    --law-fg: #FF9F0A; --law-bg: rgba(255, 159, 10, 0.16);
+    --sign-fg: #30D158; --sign-bg: rgba(48, 209, 88, 0.16);
+    --unk-fg: #98989D; --unk-bg: #2C2C2E;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+[hidden] { display: none !important; }
+
+.screen {
+  min-height: 100%;
+  padding: calc(env(safe-area-inset-top) + 20px) 20px calc(env(safe-area-inset-bottom) + 16px);
+  display: flex; flex-direction: column;
+}
+
+/* Start */
+.start-inner { display: flex; flex-direction: column; gap: 18px; max-width: 420px; margin: auto 0; }
+h1 { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.02em; }
+.lede { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.45; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted); font-weight: 500; }
+select {
+  font: inherit; font-size: 17px; color: var(--ink); background: var(--card);
+  border: 1px solid var(--line); border-radius: 12px; padding: 13px 12px;
+  -webkit-appearance: none; appearance: none;
+}
+.primary {
+  font: inherit; font-size: 18px; font-weight: 700; color: #fff; background: #0A66C2;
+  border: 0; border-radius: 14px; padding: 16px; min-height: 54px;
+}
+.notes { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+
+/* Drive */
+.road { display: flex; flex-direction: column; gap: 4px; }
+.road-name { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+.road-meta { font-size: 14px; color: var(--muted); font-weight: 500; }
+
+.gauge {
+  margin-top: 22px; background: var(--card); border-radius: 24px; padding: 22px 22px 20px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  box-shadow: 0 1px 2px rgba(20, 22, 28, 0.05), 0 8px 24px rgba(20, 22, 28, 0.06);
+}
+.speed { display: flex; flex-direction: column; }
+.speed-num { font-size: 96px; font-weight: 800; line-height: 0.9; letter-spacing: -0.05em; font-variant-numeric: tabular-nums; }
+.speed-num.over { color: var(--over); }
+.speed-unit { font-size: 17px; color: var(--muted); font-weight: 600; margin-top: 6px; }
+
+.sign-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+/* The sign is always the real sign: white face, red border, black number. Confidence
+   lives in the label underneath, never in the sign itself. */
+.sign {
+  width: 128px; height: 128px; border-radius: 50%; background: #fff;
+  border: 15px solid var(--red); display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(20, 22, 28, 0.08), 0 10px 26px rgba(20, 22, 28, 0.12);
+}
+.sign span { font-size: 44px; font-weight: 800; color: #15161A; letter-spacing: -0.04em; }
+.sign.unknown { border-color: #C9C7C1; background: #FAF9F7; }
+.sign.unknown span { color: #A9A7A1; }
+.sign.pop { animation: pop 0.45s ease-out; }
+@keyframes pop { 0% { transform: scale(0.82); } 60% { transform: scale(1.06); } 100% { transform: scale(1); } }
+
+.tier { font-size: 14px; font-weight: 600; padding: 6px 14px; border-radius: 999px; background: var(--unk-bg); color: var(--unk-fg); }
+.tier.law { background: var(--law-bg); color: var(--law-fg); }
+.tier.sign-tier { background: var(--sign-bg); color: var(--sign-fg); }
+
+.zone { margin-top: 18px; font-size: 16px; font-weight: 600; }
+.reason { margin-top: 4px; font-size: 14px; color: var(--muted); line-height: 1.4; }
+
+.wrong {
+  margin-top: auto; font: inherit; font-size: 26px; font-weight: 800; letter-spacing: 0.02em;
+  color: #fff; background: var(--over); border: 0; border-radius: 22px;
+  min-height: 96px; width: 100%;
+}
+.wrong:active, .wrong.flash { filter: brightness(0.8); }
+
+.status {
+  margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+  font-size: 13px; color: var(--faint);
+}
+.link { font: inherit; font-size: 13px; color: #0A66C2; background: none; border: 0; padding: 6px 0; }
+.attrib { margin-top: 6px; font-size: 11px; color: var(--faint); }

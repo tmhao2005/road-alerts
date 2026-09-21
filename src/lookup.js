@@ -28,7 +28,7 @@ export function buildIndex(data) {
 // win when nothing else is close. Bigger roads get a small edge so that a point sitting
 // on a node two roads share - every junction - resolves to the through road rather than
 // to whichever side street happened to be indexed first.
-const PENALTY = {
+export const PENALTY = {
   service: 12, residential: 0, living_street: 0, unclassified: 0,
   tertiary: -1, tertiary_link: -1, secondary: -2, secondary_link: -2,
   primary: -3, primary_link: -3, trunk: -4, trunk_link: -4, motorway: -4, motorway_link: -4,

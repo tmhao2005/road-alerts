@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F4F3F0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>Tốc độ — bản thử</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<section id="start" class="screen">
+  <div class="start-inner">
+    <h1>Tốc độ tối đa</h1>
+    <p class="lede">Bản thử cho một chuyến đi. Người ngồi cạnh cầm máy — tài xế không chạm vào điện thoại.</p>
+
+    <label class="field">
+      <span>Loại xe</span>
+      <select id="vehicle"></select>
+    </label>
+
+    <button id="go" class="primary" type="button">Bắt đầu</button>
+
+    <ul class="notes">
+      <li>Giữ màn hình mở và Safari ở phía trước suốt chuyến đi.</li>
+      <li>Khi app sai, bấm nút <b>Sai</b>. App ghi lại chỗ đó để xem sau.</li>
+      <li>Chỉ có dữ liệu cho TP.HCM và vùng lân cận.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="drive" class="screen" hidden>
+  <header class="road">
+    <div id="roadName" class="road-name">Đang tìm đường…</div>
+    <div id="roadMeta" class="road-meta"></div>
+  </header>
+
+  <div class="gauge">
+    <div class="speed">
+      <div id="speed" class="speed-num">–</div>
+      <div class="speed-unit">km/h</div>
+    </div>
+    <div class="sign-wrap">
+      <div id="sign" class="sign unknown"><span id="limit">–</span></div>
+      <div id="tier" class="tier">Đang tải</div>
+    </div>
+  </div>
+
+  <div id="zone" class="zone"></div>
+  <div id="reason" class="reason"></div>
+
+  <button id="wrong" class="wrong" type="button">Sai</button>
+
+  <footer class="status">
+    <span id="gps">GPS: đang chờ</span>
+    <span id="count">0 lần báo sai</span>
+    <button id="export" class="link" type="button">Xuất nhật ký</button>
+    <button id="stop" class="link" type="button">Dừng</button>
+  </footer>
+  <div class="attrib">Dữ liệu bản đồ © OpenStreetMap contributors (ODbL)</div>
+</section>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

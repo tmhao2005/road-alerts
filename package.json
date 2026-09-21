@@ -5,6 +5,9 @@
   "scripts": {
     "test": "node --test src/",
     "prep": "sh tools/prep-hcm.sh",
-    "check": "node tools/check.js"
+    "check": "node tools/check.js",
+    "site": "sh tools/build-site.sh",
+    "serve": "node tools/serve.js",
+    "sim": "node tools/sim.js"
   }
 }

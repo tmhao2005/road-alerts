@@ -45,12 +45,8 @@ export function guessZone(facts) {
     return { inside: false, confidence: 'thap', reason: 'Xã, không có khu dân cư trên bản đồ' };
   }
 
-  // Outside any mapped ward or commune: fall back on land use alone.
-  if (MINOR.has(highway)) {
-    return { inside: true, confidence: 'thap', reason: 'Đường nhỏ, không rõ phường/xã' };
-  }
-  if (inResidential) {
-    return { inside: true, confidence: 'thap', reason: 'Trong khu dân cư, không rõ phường/xã' };
-  }
-  return { inside: false, confidence: 'thap', reason: 'Không có dấu hiệu dân cư trên bản đồ' };
+  // Every point in Vietnam belongs to some phường or xã, so reaching here means the map
+  // is missing that boundary - a data gap, not open country. Assume the lower limit
+  // rather than hand out a 90 on the strength of missing data.
+  return { inside: true, confidence: 'thap', reason: 'Bản đồ thiếu ranh giới phường/xã — tạm lấy giới hạn thấp' };
 }

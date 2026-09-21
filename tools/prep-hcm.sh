@@ -29,7 +29,10 @@ fi
 # because the out-of-town run is where the đông dân cư guess actually gets tested.
 BBOX=106.30,10.40,107.10,11.25
 
-osmium extract -s smart -b "$BBOX" "$PBF" -o data/hcm.osm.pbf --overwrite
+# By default "smart" only completes multipolygon relations that cross the box edge.
+# Ward boundaries are type=boundary, and without this every ward straddling the edge -
+# Trảng Bàng on QL22 among them - silently fails to assemble.
+osmium extract -s smart -S types=multipolygon,boundary -b "$BBOX" "$PBF" -o data/hcm.osm.pbf --overwrite
 osmium tags-filter data/hcm.osm.pbf \
   w/highway w/landuse=residential r/landuse=residential r/boundary=administrative \
   -o data/hcm-filtered.osm.pbf --overwrite

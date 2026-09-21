@@ -31,6 +31,12 @@ test('open road in a xã is outside, at low confidence', () => {
   assert.equal(z.confidence, 'thap');
 });
 
+test('a missing ward is a data gap, so it takes the lower limit, never open-road 90', () => {
+  const z = guessZone({ highway: 'trunk', ward: null, quarter: null, inResidential: false });
+  assert.equal(z.inside, true);
+  assert.equal(z.confidence, 'thap');
+});
+
 test('every answer carries a reason', () => {
   for (const ward of ['phuong', 'xa', null]) {
     for (const inResidential of [true, false]) {
