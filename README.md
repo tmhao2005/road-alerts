@@ -11,6 +11,27 @@ is the statutory speed function (see [Next steps](#next-steps)).
 
 ---
 
+## Try it
+
+Check the speed limit at any point in TP.HCM by pasting a coordinate from Google Maps
+(right-click the map, click the coordinates to copy them):
+
+```sh
+brew install osmium-tool   # once
+npm run prep               # once: downloads the Vietnam extract, builds data/ (~2 min)
+npm test                   # the law's tables, as tests
+
+npm run check -- "10.7743, 106.7010"                 # a car, by default
+npm run check -- "10.7743, 106.7010" --xe xe_mo_to   # another vehicle
+npm run check -- "10.7743, 106.7010" --tat-ca        # every vehicle at once
+```
+
+It prints the matched road, the ward or commune, the đông dân cư guess with its reason
+and confidence, the limit with the rule that produced it, and every assumption made on
+the way. The reasons are the point: when it's wrong, they show why.
+
+---
+
 ## Where things are
 
 | | |

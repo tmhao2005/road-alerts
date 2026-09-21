@@ -1,0 +1,10 @@
+{
+  "attributes": { "type": true, "id": true },
+  "linear_tags": ["highway"],
+  "area_tags": ["landuse", "boundary"],
+  "include_tags": [
+    "highway", "name", "ref", "lanes", "oneway", "junction", "expressway",
+    "maxspeed", "maxspeed:forward", "maxspeed:backward",
+    "landuse", "boundary", "admin_level"
+  ]
+}

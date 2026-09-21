@@ -1,0 +1,10 @@
+{
+  "name": "road-alerts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/",
+    "prep": "sh tools/prep-hcm.sh",
+    "check": "node tools/check.js"
+  }
+}
