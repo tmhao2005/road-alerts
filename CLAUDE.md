@@ -8,9 +8,15 @@ stale.
 
 ## Status
 
-Pre-code. The only thing here is a data feasibility spike (`docs/spike-brief.md`) that has
-not run yet. Do not scaffold an app until it reports. The spike decides the architecture,
-so building first means building the wrong thing.
+Pre-code. The data feasibility spike has run — `docs/spike-results.md`. It reported that
+OSM speed limit coverage is 3.2% nationally, đông dân cư boundaries are absent (17 nodes
+countrywide) and speed cameras are absent (43 nodes). So: the statutory function is the
+product, inferring the đông dân cư boundary is a core component rather than a fallback, and
+the camera layer is a cold-start crowdsourcing problem with nothing to seed it. The trunk
+road network packs to 4.4 MB, so offline-first is settled and no tile server is needed.
+
+Next, and still before an app: the statutory speed function (priority 3), then the
+three-route ground check the spike scopes out — which needs Hao to name the routes.
 
 ## Why this exists
 

@@ -1,7 +1,6 @@
 # Data feasibility spike
 
-Not run yet. Roughly 10 minutes of machine time and half an hour of work. Nothing else
-should be built before it reports.
+Run 2026-09-21. Results in `spike-results.md`; this brief is kept as written for the record.
 
 ## The question
 
