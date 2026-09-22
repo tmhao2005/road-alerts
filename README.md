@@ -6,8 +6,10 @@ A Vietnamese driving companion that tells you the legal speed limit on any road,
 and on a glanceable screen, and gets more accurate every trip as drivers correct it.
 
 **Status: early.** The data feasibility spike has run, the speed law has been read at
-source, and the core speed function exists with a coordinate tester for TP.HCM. The next
-piece of work is an iPhone test app (see [Next steps](#next-steps)).
+source, and the core speed function exists with a coordinate tester for TP.HCM. The iPhone
+test app has its driving screen: a forward road view drawn from the map, the limit, lights
+ahead and voice, installable from the home screen and working offline once its tiles are
+loaded. The next piece of work is the test drive (see [Next steps](#next-steps)).
 
 ---
 
@@ -30,6 +32,19 @@ It prints the matched road, the ward or commune, the đông dân cư guess with 
 and confidence, the limit with the rule that produced it, and every assumption made on
 the way. The reasons are the point: when it's wrong, they show why.
 
+The test app, on this Mac or a phone on the same Wi-Fi:
+
+```sh
+npm run site     # the page, plus map tiles when the map data is newer than them
+npm run serve    # prints the localhost and LAN addresses
+```
+
+On the start screen, the "Xem thử, không cần lái" drives run a pretend car along real
+roads, one fix a second like a phone's GPS, through the same matching, law and drawing as a
+real drive. Real GPS needs https, so a real drive uses the GitHub Pages link, which every
+push to `main` redeploys. In Safari, Share → Add to Home Screen turns it into an app with
+its own icon.
+
 ---
 
 ## Where things are
@@ -39,8 +54,9 @@ the way. The reasons are the point: when it's wrong, they show why.
 | [`docs/spike-brief.md`](docs/spike-brief.md) | What the data spike set out to answer |
 | [`docs/spike-results.md`](docs/spike-results.md) | The five spike numbers and what they imply |
 | This README | Everything learned since: the law, competitors, platforms, design |
-| [`src/`](src) | The speed law, the đông dân cư guess, map lookup and traffic lights, with tests |
-| [`tools/`](tools) | Data preparation and the coordinate tester |
+| [`src/`](src) | The speed law, the đông dân cư guess, map lookup, the road ahead, lights, smooth motion and the view's projection, with tests |
+| [`web/`](web) | The test app: page, road view renderer, offline worker, icon |
+| [`tools/`](tools) | Data preparation, the coordinate tester, the route simulator and the local server |
 | [`CLAUDE.md`](CLAUDE.md) | Early thinking and working conventions. Treat as ideas, not settled decisions |
 
 ---
@@ -321,9 +337,22 @@ Decisions so far:
   luật, 60"), a confirmed one as a plain number. LLMs help only off the road: drafting
   phrase variants for review, and the parked post-drive trip summary.
 
-The animated road view and junction view (branch names and limits) wait until after the
-first test drive. They need real map geometry, and the first drive has one question to
-answer: is the number right?
+The road view is built into the test app from the phone's own map tiles:
+
+- **The road ahead is picked out** only as far as it obviously goes, fading where it
+  reaches a junction the app cannot see through. Lights and shoulder signs read the same
+  walk ahead, so the three never disagree about which road comes next.
+- **Between GPS fixes the car keeps moving** along its matched road, and a fix that
+  disagrees is eased in over half a second. It never runs more than 1.5 s past the last fix
+  or round a junction on a guess, and it stands still at a light through GPS wobble.
+- **A shoulder sign is a promise**: it is decided by the same stabiliser as the badge, so
+  a stretch the badge would ignore never gets a sign. When the badge changes, the sign just
+  passed flies into it. Signs that line up stack on one pole, like plates on a real post.
+- **Redrawn at 30 frames a second at most, and not at all when standing still**, because
+  the phone is on for the whole drive in a hot car.
+
+Still to do: the junction view (branch names and their limits) and real R.420 / R.421
+plates at đông dân cư boundaries.
 
 ---
 
@@ -335,12 +364,15 @@ answer: is the number right?
 4. Which voice records the phrase bank, and which form of address it uses. (How statutory
    and confirmed limits differ is settled: by wording, see Design direction.)
 5. How many independent driver traces promote a report to confirmed.
+6. Whether the badge should change at a mapped sign for a higher limit. Today it waits
+   250 m, to ride out map pieces that flicker, so a driver passes a "60" and still sees 50
+   for a while. A sign drawn on the shoulder is already one the stabiliser will adopt.
 
 ## Next steps
 
 1. ~~Statutory speed function and đông dân cư guess~~ — done, with a coordinate tester.
-2. **iPhone test app** in Safari: GPS, Vietnamese voice, a simple screen, and one-tap
-   error logging for a passenger.
+2. ~~iPhone test app~~ — done: GPS, Vietnamese voice, the road view, one-tap error logging
+   for a passenger, demo drives, home-screen install and offline tiles.
 3. ~~Traffic-light warning~~ — done: in the test app, the simulator, and the trip log.
 4. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
    QL13 near Bến Cát. After the 2025 ward mergers those stretches sit inside large
@@ -348,7 +380,11 @@ answer: is the number right?
    check the traffic-light warnings.
 5. **Decide** from the results: launch main roads on the guess, or pay for a survey of
    main-road boundaries first.
-6. Road and junction views from real geometry, then the native app.
+6. **Fix:** where OSM maps one road as alternating pieces with different limits (a stretch
+   of Nguyễn Văn Linh alternates 60 and 80), each switch restarts the stabiliser's
+   distance, so the badge can stay on a lower limit for 400 m after the road has gone back
+   up. Safe-side, but wrong.
+7. Junction view from real geometry, then the native app.
 
 ---
 

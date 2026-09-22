@@ -93,3 +93,16 @@ test('a light first seen at the stop line is not announced', () => {
 test('crossings and junction lights are phrased differently', () => {
   assert.notEqual(lightPhrase({ crossing: true }), lightPhrase({ crossing: false }));
 });
+
+test('the walk carries on over a bridge with its own name when it is the only way on', () => {
+  const a = { id: 5, highway: 'primary', name: 'Main', c: [[LON, LAT], [LON, LAT + STEP]] };
+  const bridge = { id: 9, highway: 'primary', name: 'Cầu', c: [[LON, LAT + STEP], [LON, LAT + 2 * STEP]], sg: [[1, 0, 500, 0]] };
+  assert.deepEqual(lightsAhead([a, bridge], { piece: a, seg: 0 }, north, 300).map((l) => l.id), [500]);
+});
+
+test('but not when a side street also leaves from the same vertex', () => {
+  const a = { id: 5, highway: 'primary', name: 'Main', c: [[LON, LAT], [LON, LAT + STEP]] };
+  const bridge = { id: 9, highway: 'primary', name: 'Cầu', c: [[LON, LAT + STEP], [LON, LAT + 2 * STEP]], sg: [[1, 0, 500, 0]] };
+  const side = { id: 7, highway: 'residential', c: [[LON, LAT + STEP], [LON + STEP, LAT + STEP]] };
+  assert.deepEqual(lightsAhead([a, bridge, side], { piece: a, seg: 0 }, north, 300), []);
+});

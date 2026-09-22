@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#F4F3F0" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-title" content="Tốc độ">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>Tốc độ — bản thử</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -17,6 +21,7 @@
 
 <section id="start" class="screen">
   <div class="start-inner">
+    <div class="app-mark" aria-hidden="true">60</div>
     <h1>Tốc độ tối đa</h1>
     <p class="lede">Bản thử cho một chuyến đi. Người ngồi cạnh cầm máy — tài xế không chạm vào điện thoại.</p>
 
@@ -27,49 +32,65 @@
 
     <button id="go" class="primary" type="button">Bắt đầu</button>
 
+    <div class="demos">
+      <h2>Xem thử, không cần lái</h2>
+      <div id="demos"></div>
+    </div>
+
     <ul class="notes">
-      <li>Giữ màn hình mở và Safari ở phía trước suốt chuyến đi.</li>
-      <li>Khi app sai, bấm nút <b>Sai</b>. App ghi lại chỗ đó để xem sau.</li>
-      <li>Chỉ có dữ liệu cho TP.HCM và vùng lân cận.</li>
+      <li>Thêm vào Màn hình chính để mở như một ứng dụng.</li>
+      <li>Giữ màn hình sáng và app ở phía trước suốt chuyến đi.</li>
+      <li>Khi app sai, bấm <b>Sai</b>. App ghi lại chỗ đó để xem sau.</li>
     </ul>
   </div>
 </section>
 
-<section id="drive" class="screen" hidden>
-  <header class="road">
+<section id="drive" class="drive" hidden>
+  <canvas id="scene" class="scene"></canvas>
+
+  <header class="road-card">
     <div id="roadName" class="road-name">Đang tìm đường…</div>
     <div id="roadMeta" class="road-meta"></div>
   </header>
+  <div id="demoTag" class="demo-tag" hidden>Mô phỏng</div>
 
-  <div class="gauge">
-    <div class="speed">
-      <div id="speed" class="speed-num">–</div>
-      <div class="speed-unit">km/h</div>
+  <div id="panel" class="panel">
+    <div class="gauge">
+      <div class="speed">
+        <div id="speed" class="speed-num">–</div>
+        <div class="speed-unit">km/h</div>
+      </div>
+      <div class="badge">
+        <div id="sign" class="sign unknown"><span class="num">–</span></div>
+        <div id="tier" class="tier">Đang tải</div>
+      </div>
     </div>
-    <div class="sign-wrap">
-      <div id="sign" class="sign unknown"><span id="limit">–</span></div>
-      <div id="tier" class="tier">Đang tải</div>
+    <div class="actions">
+      <button id="wrong" class="wrong" type="button"><span>Sai<small>Ghi lại chỗ này</small></span></button>
+      <button id="more" class="more" type="button" aria-label="Chi tiết">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>
+      </button>
     </div>
   </div>
 
-  <div id="ahead" class="ahead" hidden>
-    <span class="lamp" aria-hidden="true"><i></i><i></i><i></i></span>
-    <span id="aheadLabel" class="ahead-label">Đèn giao thông</span>
-    <span id="aheadDist" class="ahead-dist"></span>
+  <div id="scrim" class="sheet-scrim"></div>
+  <div id="sheet" class="sheet" aria-hidden="true">
+    <div class="grabber"></div>
+    <h3>Vì sao là con số này</h3>
+    <div id="zone" class="zone"></div>
+    <div id="reason" class="reason"></div>
+    <div class="rows">
+      <div class="row"><span>GPS</span><span id="gps">đang chờ</span></div>
+      <div class="row"><span>Tốc độ lấy từ</span><span id="speedSrc">–</span></div>
+      <div class="row"><span>Đã báo sai</span><span id="count">0 lần</span></div>
+      <div class="row"><span>Bản đồ</span><span id="built">–</span></div>
+    </div>
+    <div class="sheet-actions">
+      <button id="export" type="button">Xuất nhật ký</button>
+      <button id="stop" class="stop" type="button">Dừng</button>
+    </div>
+    <div class="attrib">Dữ liệu bản đồ © OpenStreetMap contributors (ODbL)</div>
   </div>
-
-  <div id="zone" class="zone"></div>
-  <div id="reason" class="reason"></div>
-
-  <button id="wrong" class="wrong" type="button">Sai</button>
-
-  <footer class="status">
-    <span id="gps">GPS: đang chờ</span>
-    <span id="count">0 lần báo sai</span>
-    <button id="export" class="link" type="button">Xuất nhật ký</button>
-    <button id="stop" class="link" type="button">Dừng</button>
-  </footer>
-  <div class="attrib">Dữ liệu bản đồ © OpenStreetMap contributors (ODbL)</div>
 </section>
 
 <script type="module" src="app.js"></script>
