@@ -39,7 +39,7 @@ the way. The reasons are the point: when it's wrong, they show why.
 | [`docs/spike-brief.md`](docs/spike-brief.md) | What the data spike set out to answer |
 | [`docs/spike-results.md`](docs/spike-results.md) | The five spike numbers and what they imply |
 | This README | Everything learned since: the law, competitors, platforms, design |
-| [`src/`](src) | The speed law, the đông dân cư guess, and map lookup, with tests |
+| [`src/`](src) | The speed law, the đông dân cư guess, map lookup and traffic lights, with tests |
 | [`tools/`](tools) | Data preparation and the coordinate tester |
 | [`CLAUDE.md`](CLAUDE.md) | Early thinking and working conventions. Treat as ideas, not settled decisions |
 
@@ -256,6 +256,17 @@ open at all. That covers most driving (commutes, regular trips).
 What that view can honestly show: the road's real shape, the junction ahead with each
 branch's name and **speed limit**, lane counts where known, and upcoming limit changes.
 
+**Traffic lights are a requirement, not an extra.** Most *phạt nguội* is red-light and
+stop-line enforcement at city junctions, not speed, and OSM has no usable camera data to
+warn about it (43 speed cameras, about 18 traffic-facing surveillance nodes, none marked
+as issuing fines). But warning about the light is correct whether a camera is there or
+not, and the lights themselves are well mapped: 7,883 `highway=traffic_signals` nodes
+nationally, 3,423 in the HCM box. About 4,500 carry `traffic_signals:direction`, which
+lets us skip lights facing the opposite carriageway, and 2,412 are signalised pedestrian
+crossings. A missing light means silence and a slightly misplaced one costs nothing, so
+this stays inside the rule of never announcing what is not real. Cameras stay a separate,
+crowdsourced layer for later.
+
 What it cannot: turn-by-turn directions to a new address. Routing itself is buildable
 (Valhalla and OSRM run on the same OSM extract, and Valhalla works offline), but live
 traffic, lane guidance and good place search are not available, so for an unfamiliar
@@ -293,6 +304,22 @@ Decisions so far:
 - **Real R.420 / R.421 plates** for *đông dân cư* boundaries.
 - **Draw only what the data supports.** No lane dividers where `lanes` is untagged; labels
   omitted when too small to read.
+- **Traffic lights ahead** appear on the right shoulder with the other upcoming features,
+  with a monochrome lamp icon (red is reserved for speeding), and are spoken once per
+  junction ("Đèn giao thông phía trước", or "Đèn qua đường" at a signalised crossing)
+  about 8 seconds out at current speed, 80–300 m. Only lights on the road being driven and
+  facing the driver's direction count, and the look-ahead stops at any junction where
+  that road does not obviously continue: a light announced on a road the driver is not
+  taking teaches them to ignore the voice.
+- **One natural voice, from a fixed phrase bank.** Every phrase is written and approved by
+  hand, then recorded once (voice actor or a good Vietnamese neural TTS) and shipped as
+  audio, numbers 5–120 included. Nothing is generated while driving: alerts must be instant
+  and offline, and a generated sentence can soften or change a number. Warmth comes from
+  wording, not from length: one consistent form of address, a few rotating variants per
+  alert, a greeting at trip start, and silence when there is nothing to say.
+- **Confidence is heard in the wording.** A statutory limit is spoken as the law ("Theo
+  luật, 60"), a confirmed one as a plain number. LLMs help only off the road: drafting
+  phrase variants for review, and the parked post-drive trip summary.
 
 The animated road view and junction view (branch names and limits) wait until after the
 first test drive. They need real map geometry, and the first drive has one question to
@@ -305,7 +332,8 @@ answer: is the number right?
 1. Foreground mini-map vs Android bubble as the primary product.
 2. Whether to build turn-by-turn, and if so for which trips.
 3. Android first, or both platforms at once.
-4. How the voice should sound different for a statutory limit versus a confirmed one.
+4. Which voice records the phrase bank, and which form of address it uses. (How statutory
+   and confirmed limits differ is settled: by wording, see Design direction.)
 5. How many independent driver traces promote a report to confirmed.
 
 ## Next steps
@@ -313,12 +341,14 @@ answer: is the number right?
 1. ~~Statutory speed function and đông dân cư guess~~ — done, with a coordinate tester.
 2. **iPhone test app** in Safari: GPS, Vietnamese voice, a simple screen, and one-tap
    error logging for a passenger.
-3. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
+3. ~~Traffic-light warning~~ — done: in the test app, the simulator, and the trip log.
+4. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
    QL13 near Bến Cát. After the 2025 ward mergers those stretches sit inside large
-   *phường*, so they are where the đông dân cư guess is weakest.
-4. **Decide** from the results: launch main roads on the guess, or pay for a survey of
+   *phường*, so they are where the đông dân cư guess is weakest. The city streets also
+   check the traffic-light warnings.
+5. **Decide** from the results: launch main roads on the guess, or pay for a survey of
    main-road boundaries first.
-5. Road and junction views from real geometry, then the native app.
+6. Road and junction views from real geometry, then the native app.
 
 ---
 

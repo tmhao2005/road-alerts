@@ -1,5 +1,5 @@
 // Live driving logic, kept free of the DOM so it can be tested without a phone.
-import { pointSegment, metresPerDegree } from './geo.js';
+import { pointSegment, bearing, angleBetween } from './geo.js';
 import { roadFacts, roadLabel, PENALTY } from './lookup.js';
 import { guessZone } from './zone.js';
 import { statutoryLimit, withSign } from './limit.js';
@@ -11,17 +11,6 @@ export function tilesAround(lon, lat) {
   const out = [];
   for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) out.push(`${tx + dx}_${ty + dy}`);
   return out;
-}
-
-function bearing(a, b) {
-  const m = metresPerDegree(a[1]);
-  const dx = (b[0] - a[0]) * m.x, dy = (b[1] - a[1]) * m.y;
-  return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
-}
-
-function angleBetween(a, b) {
-  const d = Math.abs(a - b) % 360;
-  return d > 180 ? 360 - d : d;
 }
 
 const ONEWAY = new Set(['yes', '1', 'true']);
@@ -40,7 +29,7 @@ export function matchLive(pieces, fix, prev) {
   for (const pc of pieces) {
     for (let i = 0; i < pc.c.length - 1; i++) {
       const a = pc.c[i], b = pc.c[i + 1];
-      const { dist } = pointSegment(p, a, b);
+      const { dist, t } = pointSegment(p, a, b);
       if (dist > maxDist) continue;
       let score = dist + (PENALTY[pc.highway] || 0);
       if (moving) {
@@ -53,7 +42,7 @@ export function matchLive(pieces, fix, prev) {
       }
       if (prev && prev.id === pc.id) score -= 8;
       else if (prev && prev.name && prev.name === pc.name) score -= 5;
-      if (!best || score < best.score) best = { piece: pc, dist, score };
+      if (!best || score < best.score) best = { piece: pc, seg: i, t, dist, score };
     }
   }
   return best;

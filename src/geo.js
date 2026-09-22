@@ -8,6 +8,23 @@ export function metresPerDegree(lat) {
   return { x: R * k * Math.cos(lat * k), y: R * k };
 }
 
+export function metres(a, b) {
+  const m = metresPerDegree(a[1]);
+  return Math.hypot((b[0] - a[0]) * m.x, (b[1] - a[1]) * m.y);
+}
+
+// Compass bearing from a to b, 0 = north, clockwise.
+export function bearing(a, b) {
+  const m = metresPerDegree(a[1]);
+  const dx = (b[0] - a[0]) * m.x, dy = (b[1] - a[1]) * m.y;
+  return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+}
+
+export function angleBetween(a, b) {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
 // Distance in metres from p to segment ab, plus the parameter t of the nearest point.
 // Points are [lon, lat].
 export function pointSegment(p, a, b) {

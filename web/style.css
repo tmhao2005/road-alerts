@@ -102,3 +102,18 @@ select {
 }
 .link { font: inherit; font-size: 13px; color: #0A66C2; background: none; border: 0; padding: 6px 0; }
 .attrib { margin-top: 6px; font-size: 11px; color: var(--faint); }
+
+/* Upcoming light. Deliberately monochrome: red on this screen means over the limit. */
+.ahead {
+  margin-top: 14px; align-self: flex-end; display: flex; align-items: center; gap: 12px;
+  background: var(--card); border-radius: 18px; padding: 10px 16px 10px 12px;
+}
+.ahead.in { animation: slide-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+@keyframes slide-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.lamp {
+  display: flex; flex-direction: column; gap: 3px; padding: 5px 4px;
+  border-radius: 7px; background: var(--ink);
+}
+.lamp i { width: 9px; height: 9px; border-radius: 50%; background: var(--bg); opacity: 0.85; }
+.ahead-label { font-size: 17px; font-weight: 600; }
+.ahead-dist { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }

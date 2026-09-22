@@ -1,5 +1,5 @@
 // Reduce osmium's GeoJSON export to just what the speed lookup reads: drivable roads,
-// residential areas, and the ward/commune and khu phố/ấp boundaries.
+// residential areas, the ward/commune and khu phố/ấp boundaries, and traffic lights.
 import { createReadStream, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { bboxOf } from '../src/geo.js';
@@ -34,7 +34,15 @@ function ringsOf(geom) {
   return null;
 }
 
+// A light's direction tag is relative to the way it sits on: forward means it faces
+// traffic travelling in the way's drawing order.
+function lightSense(p) {
+  const d = p['traffic_signals:direction'] || p.direction;
+  return d === 'forward' ? 1 : d === 'backward' ? -1 : 0;
+}
+
 const roads = [], residential = [], wards = [], quarters = [];
+const lights = new Map();
 const rl = createInterface({ input: createReadStream(src, 'utf8'), crlfDelay: Infinity });
 
 for await (const raw of rl) {
@@ -43,6 +51,12 @@ for await (const raw of rl) {
   let f;
   try { f = JSON.parse(line); } catch { continue; }
   const p = f.properties || {}, g = f.geometry || {};
+
+  if (g.type === 'Point' && p.highway === 'traffic_signals') {
+    const c = round(g.coordinates);
+    lights.set(`${c[0]},${c[1]}`, [lightSense(p), p['@id'], p.crossing === 'traffic_signals' ? 1 : 0]);
+    continue;
+  }
 
   if (g.type === 'LineString' && DRIVABLE.has(p.highway)) {
     roads.push({
@@ -68,6 +82,19 @@ for await (const raw of rl) {
   }
 }
 
+// Every light is a node of the road it controls, so it lands exactly on a vertex. Stored
+// per road as [vertex, sense, node id, crossing]; a light where two roads meet is kept
+// on both, and the node id lets the phone say it once.
+const placed = new Set();
+for (const road of roads) {
+  road.c.forEach((c, i) => {
+    const l = lights.get(`${c[0]},${c[1]}`);
+    if (!l) return;
+    (road.sg ||= []).push([i, ...l]);
+    placed.add(l[1]);
+  });
+}
+
 const bbox = bboxArg ? bboxArg.split(',').map(Number) : null;
 writeFileSync(out, JSON.stringify({ bbox, roads, residential, wards, quarters }));
-console.log(`roads ${roads.length}, residential ${residential.length}, wards ${wards.length}, quarters ${quarters.length} -> ${out}`);
+console.log(`roads ${roads.length}, residential ${residential.length}, wards ${wards.length}, quarters ${quarters.length}, lights ${placed.size}/${lights.size} on a road -> ${out}`);

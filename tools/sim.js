@@ -1,10 +1,12 @@
 // Drive a road virtually through the same tiles and logic the phone uses, printing
-// every point where the displayed limit would change. A preview of a test route.
+// every point where the displayed limit would change and every traffic light it would
+// announce. A preview of a test route.
 //
 //   node tools/sim.js QL.13            (south to north)
 //   node tools/sim.js QL.1 --south     (north to south)
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tilesAround, matchLive, evaluate, makeStabiliser } from '../src/live.js';
+import { lightsAhead, reachFor, makeLightWatcher, lightPhrase } from '../src/lights.js';
 import { metresPerDegree } from '../src/geo.js';
 
 const DIR = 'site/tiles';
@@ -61,7 +63,8 @@ const pts = new Map();
   }
 
   const stable = makeStabiliser();
-  let prev = null, km = 0, last = null, changes = 0;
+  const watch = makeLightWatcher();
+  let prev = null, km = 0, last = null, changes = 0, lights = 0;
   for (const fix of fixes) {
     let step = 0;
     if (last) {
@@ -83,6 +86,11 @@ const pts = new Map();
       const val = r.limit.max ?? '—';
       console.log(`km ${km.toFixed(1).padStart(5)}  ${String(val).padStart(3)}  ${r.limit.tier.padEnd(9)} ${(r.name || r.label).slice(0, 28).padEnd(28)} ${r.wardName || ''} — ${r.zone.reason}`);
     }
+    const { speak } = watch(lightsAhead(pieces, m, fix, reachFor(fix.speed)));
+    if (speak) {
+      lights++;
+      console.log(`km ${km.toFixed(1).padStart(5)}  ${lightPhrase(speak)}, còn ${Math.round(speak.dist)} m (node ${speak.id})`);
+    }
   }
-  console.log(`\n${km.toFixed(1)} km simulated, ${changes} announcements`);
+  console.log(`\n${km.toFixed(1)} km simulated, ${changes} limit announcements, ${lights} traffic lights`);
 }

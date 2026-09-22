@@ -86,21 +86,25 @@ for (const road of data.roads) {
   const base = {};
   for (const a of ATTRS) if (road[a] != null) base[a] = road[a];
   let cur = null;
-  for (const pt of road.c) {
+  road.c.forEach((pt, j) => {
     const f = factsAt(pt[0], pt[1]);
     const key = `${f.w}|${f.q}|${f.res}`;
     if (!cur || cur.key !== key) {
       if (cur) { cur.c.push(pt); pieces.push(cur); }
-      cur = { key, f, c: [pt] };
+      cur = { key, f, c: [pt], start: j };
     } else {
       cur.c.push(pt);
     }
-  }
+  });
   if (cur && cur.c.length >= 2) pieces.push(cur);
-  // Attach attributes after splitting, so every piece carries its own facts.
+  // Attach attributes after splitting, so every piece carries its own facts. Lights are
+  // re-indexed to the piece's own vertices.
   for (let k = pieces.length - 1; k >= 0 && !pieces[k].road; k--) {
     const p = pieces[k];
     p.road = base;
+    const end = p.start + p.c.length - 1;
+    const sg = (road.sg || []).filter((l) => l[0] >= p.start && l[0] <= end).map(([i, ...rest]) => [i - p.start, ...rest]);
+    if (sg.length) p.sg = sg;
   }
 }
 
@@ -112,6 +116,7 @@ for (const p of pieces) {
   if (p.f.w) out.w = p.f.w;
   if (p.f.q) out.q = p.f.q;
   if (p.f.res) out.res = 1;
+  if (p.sg) out.sg = p.sg;
   for (let tx = Math.floor(w / TILE); tx <= Math.floor(e / TILE); tx++) {
     for (let ty = Math.floor(s / TILE); ty <= Math.floor(n / TILE); ty++) {
       const k = `${tx}_${ty}`;

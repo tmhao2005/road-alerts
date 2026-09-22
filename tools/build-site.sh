@@ -10,5 +10,5 @@ rm -rf site
 mkdir -p site/src
 cp web/index.html web/app.js web/style.css site/
 # Only the runtime modules - tests stay out of the published site.
-for f in geo limit zone lookup live; do cp "src/$f.js" site/src/; done
+for f in geo limit zone lookup live lights; do cp "src/$f.js" site/src/; done
 node tools/build-tiles.js data/hcm-index.json site/tiles

@@ -5,6 +5,7 @@
   "include_tags": [
     "highway", "name", "ref", "lanes", "oneway", "junction", "expressway",
     "maxspeed", "maxspeed:forward", "maxspeed:backward",
-    "landuse", "boundary", "admin_level"
+    "landuse", "boundary", "admin_level",
+    "crossing", "direction", "traffic_signals:direction"
   ]
 }

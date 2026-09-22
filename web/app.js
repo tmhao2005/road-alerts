@@ -2,6 +2,7 @@
 // Every decision about the number lives in the tested modules under src/; this file only
 // wires the phone to them.
 import { tilesAround, matchLive, evaluate, makeStabiliser } from './src/live.js';
+import { lightsAhead, reachFor, makeLightWatcher, lightPhrase } from './src/lights.js';
 import { VEHICLES } from './src/limit.js';
 import { metresPerDegree } from './src/geo.js';
 
@@ -23,6 +24,8 @@ const state = {
   shown: null,
   current: null,
   stab: makeStabiliser(),
+  lights: makeLightWatcher(),
+  ahead: null,
   overSince: null,
   overSaid: false,
   log: store.get('log', []),
@@ -72,6 +75,7 @@ $('go').onclick = async () => {
   $('start').hidden = true;
   $('drive').hidden = false;
   state.stab = makeStabiliser();
+  state.lights = makeLightWatcher();
   state.shown = null; state.prev = null; state.last = null;
   state.log.push({ type: 'start', t: new Date().toISOString(), vehicle: state.vehicle, ua: navigator.userAgent });
   renderCount();
@@ -147,7 +151,14 @@ function onFix(fix) {
 
   if (state.index) {
     ensureTiles(fix.lon, fix.lat);
-    const m = matchLive(piecesAround(fix.lon, fix.lat), fix, state.prev);
+    const pieces = piecesAround(fix.lon, fix.lat);
+    const m = matchLive(pieces, fix, state.prev);
+    const { next, speak } = state.lights(lightsAhead(pieces, m, fix, reachFor(fix.speed)));
+    renderAhead(next);
+    if (speak) {
+      announceLight(speak);
+      state.log.push({ ...snapshot('light', fix, kmh), light: speak.id, dist: Math.round(speak.dist) });
+    }
     if (m) {
       state.prev = m.piece;
       const r = evaluate(m.piece, state.index, state.vehicle);
@@ -229,6 +240,23 @@ function render(current) {
   $('reason').textContent = [s.zone.reason, s.wardName].filter(Boolean).join(' · ');
 }
 
+// The light ahead is shown for as long as it is ahead, spoken or not: the screen may
+// stay quiet about a second node at the same junction, but it should never go blank
+// while a light is coming.
+function renderAhead(light) {
+  const el = $('ahead');
+  if (!light) { el.hidden = true; state.ahead = null; return; }
+  if (state.ahead !== light.id) {
+    el.hidden = false;
+    el.classList.remove('in');
+    void el.offsetWidth;
+    el.classList.add('in');
+    $('aheadLabel').textContent = light.crossing ? 'Đèn qua đường' : 'Đèn giao thông';
+    state.ahead = light.id;
+  }
+  $('aheadDist').textContent = `${Math.max(10, Math.round(light.dist / 10) * 10)} m`;
+}
+
 function pop() {
   const el = $('sign');
   el.classList.remove('pop');
@@ -266,13 +294,15 @@ function tone(freqs, dur = 0.13) {
   }
 }
 
-function say(text) {
+// queue: wait for whatever is being said instead of cutting it off. A limit change may
+// interrupt anything; a light never interrupts a limit.
+function say(text, queue = false) {
   if (!('speechSynthesis' in window)) return;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'vi-VN';
   const voice = speechSynthesis.getVoices().find((v) => /^vi/i.test(v.lang));
   if (voice) u.voice = voice;
-  speechSynthesis.cancel();
+  if (!queue) speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
 
@@ -284,6 +314,13 @@ function announce(r) {
   if (max == null) return;
   if (r.limit.tier === 'bien_bao') { tone([988, 1319]); setTimeout(() => say(`Tốc độ tối đa ${max}`), 320); }
   else { tone([660]); setTimeout(() => say(`Theo luật, ${max}`), 220); }
+}
+
+// Its own two-note cue, so a light is recognisable before the words start and never
+// mistaken for a limit change or a speeding warning.
+function announceLight(light) {
+  tone([740, 587], 0.11);
+  setTimeout(() => say(lightPhrase(light), true), 280);
 }
 
 function checkOver(kmh) {
