@@ -40,5 +40,13 @@ export function makeView({ width, height, carX = 0.5, carY = 0.64, horizonY = 0.
       const f = factor(z);
       return [cx + x * px * f, yHor + (yCar - yHor) * f, f];
     },
+    // The ground point under a screen point: what a finger is touching. At or above the
+    // horizon there is no ground, so the point is taken just below it.
+    unproject(sx, sy) {
+      const f = Math.max(0.02, (Math.max(sy, yHor + 1) - yHor) / (yCar - yHor));
+      const zf = depth / f - depth;
+      const z = zf > 0 ? fold * (Math.exp(zf / fold) - 1) : zf;
+      return [(sx - cx) / (px * f), z];
+    },
   };
 }

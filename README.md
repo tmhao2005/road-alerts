@@ -350,6 +350,12 @@ The road view is built into the test app from the phone's own map tiles:
   passed flies into it. Signs that line up stack on one pole, like plates on a real post.
 - **Redrawn at 30 frames a second at most, and not at all when standing still**, because
   the phone is on for the whole drive in a hot car.
+- **Looking around only while stopped.** Parked or at a light, one finger drags the map and
+  two pinch and twist it, with a "Về vị trí" pill to spring back. Once the car moves the
+  view springs back by itself and fingers do nothing but show "Dừng xe để xem bản đồ": a
+  map left turned while driving no longer matches the windscreen.
+- **Until the phone first moves it has no direction**, so the map is north-up around a
+  location dot, with nothing picked out ahead.
 
 Still to do: the junction view (branch names and their limits) and real R.420 / R.421
 plates at đông dân cư boundaries.

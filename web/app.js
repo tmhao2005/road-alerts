@@ -11,6 +11,7 @@ import { makeFixFiller } from './src/fix.js';
 import { VEHICLES } from './src/limit.js';
 import { metresPerDegree } from './src/geo.js';
 import { makeHud } from './hud.js';
+import { attachGestures } from './gestures.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -122,6 +123,8 @@ async function start(demo) {
     sources: { gps: 0, derived: 0, none: 0 }, motion: makeMotion(), fill: makeFixFiller(),
   });
   state.hud = makeHud($('scene'), { theme: theme() });
+  state.canLook = true;
+  $('recenter').hidden = true;
   setBadge(null, null);
   $('roadName').textContent = 'Đang tìm đường…';
   $('roadMeta').textContent = '';
@@ -204,6 +207,7 @@ function onFix(raw) {
   const step = fix.moved;
   state.last = fix;
   state.lastFixAt = performance.now();
+  lookAround(fix);
   state.sources[fix.speedSrc || 'none']++;
   if (fix.heading != null && (fix.speed == null || fix.speed > 1.5 || state.heading == null)) state.heading = fix.heading;
 
@@ -214,6 +218,18 @@ function onFix(raw) {
 
   if (state.index) {
     ensureTiles(fix.lon, fix.lat);
+    place(fix, step);
+  }
+
+  checkOver(kmh);
+  trace(fix, kmh);
+}
+
+// Match the fix to a road and show what follows from it. Also run again, with no distance
+// travelled, when map tiles arrive: a phone's first fix usually beats its tiles, and a
+// parked phone may not send another for a while.
+function place(fix, step) {
+  {
     const pieces = piecesAround(fix.lon, fix.lat);
     const m = matchLive(pieces, fix, state.prev);
     if (m) {
@@ -229,15 +245,20 @@ function onFix(raw) {
       }
       render(r);
       ahead(pieces, m, fix, s.shown);
+    } else if (tilesLoading(fix)) {
+      state.current = null;
+      $('roadName').textContent = 'Đang tải bản đồ…';
+      $('roadMeta').textContent = '';
     } else {
       state.current = null;
       $('roadName').textContent = 'Không khớp con đường nào gần';
       $('roadMeta').textContent = 'Có thể đang ở ngoài vùng dữ liệu, hoặc GPS chưa chính xác';
     }
   }
+}
 
-  checkOver(kmh);
-  trace(fix, kmh);
+function tilesLoading(fix) {
+  return tilesAround(fix.lon, fix.lat).some((k) => { const t = state.tiles.get(k); return t && t.then; });
 }
 
 // The road ahead: one walk feeds the drawn road, the lights and the shoulder signs, so
@@ -306,7 +327,10 @@ function ensureTiles(lon, lat) {
     if (state.tiles.has(k)) { const t = state.tiles.get(k); if (t && t.then) loads.push(t); continue; }
     const p = fetch(`tiles/${k}.json`)
       .then((r) => (r.ok ? r.json() : []))
-      .then((j) => { state.tiles.set(k, j); })
+      .then((j) => {
+        state.tiles.set(k, j);
+        if (state.last && !state.current && state.index && !state.demo) place(state.last, 0);
+      })
       .catch(() => { state.tiles.delete(k); });
     state.tiles.set(k, p);
     loads.push(p);
@@ -448,6 +472,43 @@ function theme() {
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state.hud && state.hud.setTheme(theme()));
 
+// ---------- looking around while stopped ----------
+
+// The map can be moved by hand only while the car stands still. The moment it drives off,
+// fingers stop working and the view springs back to the road: a map left turned or panned
+// while driving shows the driver something other than the windscreen.
+function lookAround(fix) {
+  if (fix.speed > 1.5) state.canLook = false;
+  else if (fix.speed != null && fix.speed < 0.8) state.canLook = true;
+  if (!state.canLook && state.hud.moved()) {
+    state.hud.recenter();
+    $('recenter').hidden = true;
+  }
+}
+
+let hintTimer = null;
+function hint() {
+  const el = $('hint');
+  el.hidden = false;
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => { el.hidden = true; }, 1800);
+}
+
+attachGestures($('scene'), {
+  touch() { if (!state.canLook) hint(); },
+  pan(a, b) {
+    if (!state.canLook) return;
+    state.hud.pan(a, b);
+    $('recenter').hidden = !state.hud.moved();
+  },
+  twist(a0, b0, a1, b1) {
+    if (!state.canLook) return;
+    state.hud.twist(a0, b0, a1, b1);
+    $('recenter').hidden = !state.hud.moved();
+  },
+});
+$('recenter').onclick = () => { state.hud.recenter(); $('recenter').hidden = true; };
+
 // ---------- frame loop ----------
 
 // Drawn at up to 30 frames a second while there is something to move, and not at all
@@ -463,7 +524,7 @@ function startLoop() {
     last = ts;
     const pose = state.motion.at(now);
     const still = lastPose && pose && Math.abs(pose.lon - lastPose.lon) < 1e-8 && Math.abs(pose.lat - lastPose.lat) < 1e-8 && pose.bearing === lastPose.bearing;
-    const settling = now - state.sceneAt < 1.2;
+    const settling = now - state.sceneAt < 1.2 || state.hud.busy();
     if (!still || settling || !lastPose) {
       state.hud.draw(pose, now, (ts - drawn) / 1000);
       drawn = ts;

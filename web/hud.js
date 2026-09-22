@@ -61,6 +61,15 @@ export function makeHud(canvas, options = {}) {
   const rects = new Map();     // last on-screen box of each shoulder sign, for the badge
   let carShift = 0;            // metres right of the centre line, eased
   let viewBearing = null;      // the camera's heading; north-up until the car's is known
+  // Where the user has moved the view while stopped: metres east/north of the car, degrees
+  // turned, and zoom. All zero means the view follows the car.
+  const user = { x: 0, y: 0, turn: 0, zoom: 1 };
+  let back = false;            // springing back to the car
+  let dirty = false;           // moved by a finger since the last frame
+  let builtZoom = 1;
+  let lastCam = null;
+  const baseScale = (options.view && options.view.scale) || 7;
+  const REACH = 800;           // the tiles around the car cover about this far
 
   // Capped at the window: before the stylesheet applies, a canvas's box follows its own
   // pixel size, and growing one to fit the other never stops.
@@ -73,7 +82,8 @@ export function makeHud(canvas, options = {}) {
     // Landscape on a dashboard mount: the numbers take the right-hand column, so the road
     // is centred in what is left.
     const wide = W > H * 1.2;
-    view = makeView({ width: W, height: H, ...(wide ? { carX: 0.3, carY: 0.7, horizonY: 0.12 } : {}), ...options.view });
+    view = makeView({ width: W, height: H, ...(wide ? { carX: 0.3, carY: 0.7, horizonY: 0.12 } : {}), ...options.view, scale: baseScale * user.zoom });
+    builtZoom = user.zoom;
   }
 
   const toXY = (lon, lat) => [(lon - origin[0]) * m.x, (lat - origin[1]) * m.y];
@@ -305,9 +315,14 @@ export function makeHud(canvas, options = {}) {
   }
 
   // The car: an arrow lying on the road, the way the map apps draw it.
-  function drawCar() {
+  // car: where the car is in camera space; rel: its heading relative to the view, degrees.
+  function drawCar(car, rel) {
     const shape = [[0, 4.2], [2.7, -3.0], [0, -1.5], [-2.7, -3.0]];
-    const at = (pts, grow = 0) => pts.map(([x, z]) => view.project(x * (1 + grow), z * (1 + grow)));
+    const r = (rel * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+    const at = (pts, grow = 0) => pts.map(([x, z]) => {
+      const gx = x * (1 + grow), gz = z * (1 + grow);
+      return view.project(car[0] + gx * c + gz * s, car[1] - gx * s + gz * c);
+    });
     ctx.save();
     ctx.shadowColor = theme.shadow; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4;
     path(at(shape, 0.24)); ctx.fillStyle = theme.puckRim; ctx.fill();
@@ -317,13 +332,22 @@ export function makeHud(canvas, options = {}) {
 
   // Where the car is, facing nowhere yet: the plain location dot, not an arrow that would
   // claim a direction.
-  function drawDot() {
-    const [x, y] = view.project(0, 0);
+  function drawDot(car) {
+    const [x, y] = view.project(car[0], car[1]);
     ctx.save();
     ctx.shadowColor = theme.shadow; ctx.shadowBlur = 12; ctx.shadowOffsetY = 3;
     ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2); ctx.fillStyle = theme.puckRim; ctx.fill();
     ctx.restore();
     ctx.beginPath(); ctx.arc(x, y, 8.5, 0, Math.PI * 2); ctx.fillStyle = theme.puck; ctx.fill();
+  }
+
+  function settle(dt) {
+    const k = 1 - Math.exp(-dt / 0.14);
+    user.x -= user.x * k; user.y -= user.y * k; user.turn -= user.turn * k;
+    user.zoom += (1 - user.zoom) * k;
+    if (Math.hypot(user.x, user.y) < 0.3 && Math.abs(user.turn) < 0.3 && Math.abs(user.zoom - 1) < 0.004) {
+      user.x = 0; user.y = 0; user.turn = 0; user.zoom = 1; back = false;
+    }
   }
 
   function path(pts) {
@@ -484,7 +508,9 @@ export function makeHud(canvas, options = {}) {
     draw(pose, now, dt = 0) {
       // Follows its box: rotation, the stylesheet arriving late, a split-screen resize.
       const [bw, bh] = box();
-      if (!view || bw !== W || bh !== H) resize();
+      if (back) settle(dt);
+      if (!view || bw !== W || bh !== H || builtZoom !== user.zoom) resize();
+      dirty = false;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawGround();
       if (!pose || !origin) return;
@@ -499,13 +525,50 @@ export function makeHud(canvas, options = {}) {
       carShift += (shift - carShift) * (1 - Math.exp(-dt / 0.6));
       const [cx, cy] = toXY(pose.lon, pose.lat);
       const b = (viewBearing * Math.PI) / 180;
-      // The camera sits on the car, including its lane, so the road opens up to its left.
-      const cam = { x: cx + Math.cos(b) * carShift, y: cy - Math.sin(b) * carShift, bearing: viewBearing };
+      // The camera sits on the car, including its lane, so the road opens up to its left -
+      // unless it has been moved by hand while stopped.
+      const carX = cx + Math.cos(b) * carShift, carY = cy - Math.sin(b) * carShift;
+      const cam = { x: carX + user.x, y: carY + user.y, bearing: (viewBearing + user.turn + 360) % 360 };
+      lastCam = cam;
+      const car = toCamera(cam, carX, carY);
       drawRoads(cam);
       if (oriented) { drawAhead(cam); drawLanes(cam); }
       drawFog();
-      if (oriented) { drawCar(); drawBoards(cam, now); } else drawDot();
+      if (oriented) { drawCar(car, -user.turn); drawBoards(cam, now); } else drawDot(car);
     },
+
+    // Looking around while stopped. a, b: a finger's previous and current position in the
+    // canvas's CSS pixels. The ground under the finger stays under the finger.
+    pan(a, b) {
+      if (!view || !lastCam) return;
+      const g0 = view.unproject(a[0], a[1]), g1 = view.unproject(b[0], b[1]);
+      let dx = g0[0] - g1[0], dz = g0[1] - g1[1];
+      const len = Math.hypot(dx, dz);
+      if (len > 150) { dx *= 150 / len; dz *= 150 / len; } // a flick near the horizon is not a 2 km jump
+      const r = (lastCam.bearing * Math.PI) / 180;
+      user.x += dx * Math.cos(r) + dz * Math.sin(r);
+      user.y += -dx * Math.sin(r) + dz * Math.cos(r);
+      const far = Math.hypot(user.x, user.y);
+      if (far > REACH) { user.x *= REACH / far; user.y *= REACH / far; }
+      back = false; dirty = true;
+    },
+
+    // Two fingers: a0, b0 before, a1, b1 now. Twisting turns the map with the fingers,
+    // pinching zooms, and moving both drags.
+    twist(a0, b0, a1, b1) {
+      const angle = (p, q) => (Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI;
+      const d = ((angle(a1, b1) - angle(a0, b0) + 540) % 360) - 180;
+      user.turn = ((user.turn - d + 540) % 360) - 180;
+      const ratio = Math.hypot(b1[0] - a1[0], b1[1] - a1[1]) / Math.hypot(b0[0] - a0[0], b0[1] - a0[1]);
+      if (Number.isFinite(ratio) && ratio > 0) user.zoom = Math.max(0.4, Math.min(3, user.zoom * ratio));
+      this.pan([(a0[0] + b0[0]) / 2, (a0[1] + b0[1]) / 2], [(a1[0] + b1[0]) / 2, (a1[1] + b1[1]) / 2]);
+    },
+
+    // Spring back to following the car.
+    recenter() { if (this.moved()) back = true; },
+    moved() { return Math.hypot(user.x, user.y) > 1 || Math.abs(user.turn) > 1 || Math.abs(user.zoom - 1) > 0.02; },
+    // Something on screen is changing without the car moving: a finger, or the spring back.
+    busy() { return dirty || back; },
 
     // Where the shoulder sign for this limit was last drawn, so the badge can take it over.
     signRect(max) { return rects.get(max) || null; },

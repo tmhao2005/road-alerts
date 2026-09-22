@@ -39,3 +39,16 @@ test('camera space: ahead is +z, right is +x, whichever way the car faces', () =
   assert.deepEqual(toCamera(east, 10, 0).map((n) => Math.round(n) + 0), [0, 10]);
   assert.deepEqual(toCamera(east, 0, -10).map((n) => Math.round(n) + 0), [10, 0]); // south is on the right
 });
+
+test('unproject finds the ground point a finger is on', () => {
+  for (const [x, z] of [[0, 0], [5, 20], [-8, 120], [30, 600], [3, -10]]) {
+    const [sx, sy] = view.project(x, z);
+    const [x2, z2] = view.unproject(sx, sy);
+    assert.ok(Math.abs(x2 - x) < 0.01 && Math.abs(z2 - z) < 0.01, `${x},${z} -> ${x2.toFixed(3)},${z2.toFixed(3)}`);
+  }
+});
+
+test('above the horizon there is no ground: the far edge is used instead', () => {
+  const [, z] = view.unproject(195, view.yHor - 50);
+  assert.ok(Number.isFinite(z) && z > 1000);
+});
