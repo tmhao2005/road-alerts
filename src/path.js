@@ -2,8 +2,7 @@
 // the upcoming limits all read the same walk, so they can never disagree about which road
 // the car is about to be on. Kept free of the DOM so it can be tested without a phone.
 import { metres, bearing, angleBetween } from './geo.js';
-
-const ONEWAY = new Set(['yes', '1', 'true']);
+import { travel } from './oneway.js';
 
 export const same = (a, b) => a[0] === b[0] && a[1] === b[1];
 
@@ -12,10 +11,10 @@ export function senseOn(piece, seg, heading) {
   return angleBetween(bearing(piece.c[seg], piece.c[seg + 1]), heading) <= 90 ? 1 : -1;
 }
 
-export function allowed(piece, sense) {
-  if (piece.oneway === '-1') return sense === -1;
-  if (ONEWAY.has(piece.oneway) || piece.junction === 'roundabout' || /^motorway/.test(piece.highway)) return sense === 1;
-  return true;
+// bike: a xe máy, which may ride both ways on some streets one-way for cars.
+export function allowed(piece, sense, bike = false) {
+  const way = travel(piece, bike);
+  return way === 0 || way === sense;
 }
 
 // The piece the road carries on into at a vertex. Roads are split into pieces wherever
@@ -23,7 +22,7 @@ export function allowed(piece, sense) {
 // It continues along the same way, or the same named road going roughly straight. A road
 // that only changes name - a bridge, most often - is followed too, but only when it is
 // the one way on from that vertex; anything else is a turn the car may or may not take.
-export function continuation(pieces, from, end, inBearing) {
+export function continuation(pieces, from, end, inBearing, bike = false) {
   let best = null, ways = 0, sole = null;
   for (const pc of pieces) {
     if (pc === from || pc.c.length < 2) continue;
@@ -32,7 +31,7 @@ export function continuation(pieces, from, end, inBearing) {
       if (!same(pc.c[k], end)) continue;
       for (const sense of [1, -1]) {
         const j = k + sense;
-        if (j < 0 || j >= n || !allowed(pc, sense)) continue;
+        if (j < 0 || j >= n || !allowed(pc, sense, bike)) continue;
         ways++;
         const turn = angleBetween(inBearing, bearing(pc.c[k], pc.c[j]));
         if (turn > 45 || (k !== 0 && k !== n - 1)) continue;
@@ -53,7 +52,8 @@ export function continuation(pieces, from, end, inBearing) {
 //   lights     signals facing the car, nearest first: { id, crossing, dist, at }
 //   open       true if the road still goes on at the end, false if the walk stopped at a
 //              junction it could not see through or at the end of the road
-export function walkAhead(pieces, match, heading, reach, from) {
+// bike: a xe máy, for streets that are one-way for cars only.
+export function walkAhead(pieces, match, heading, reach, from, bike = false) {
   let piece = match.piece;
   let sense = senseOn(piece, match.seg, heading);
   let i = sense === 1 ? match.seg + 1 : match.seg;
@@ -86,7 +86,7 @@ export function walkAhead(pieces, match, heading, reach, from) {
       }
     }
     leg.end = d;
-    const next = continuation(pieces, piece, at, bearing(prevPt || at, at));
+    const next = continuation(pieces, piece, at, bearing(prevPt || at, at), bike);
     if (!next || visited.has(next.piece)) return { pts, dist, legs, lights, open: false };
     visited.add(next.piece);
     piece = next.piece;

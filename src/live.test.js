@@ -24,6 +24,15 @@ test('on a divided road, heading picks the correct carriageway', () => {
   assert.equal(matchLive([northbound, southbound], { ...fix, heading: 180 }).piece.id, 4);
 });
 
+test('against the cars on a street one-way for cars only, a xe máy stays on it', () => {
+  // Northbound for cars, both ways for xe máy, with a two-way alley 9 m to the east.
+  const street = { id: 5, highway: 'residential', name: 'Phạm Ngũ Lão', oneway: 'yes', onewayMoto: 'no', c: [[106.9, 10.8], [106.9, 10.81]] };
+  const alley = { id: 6, highway: 'residential', name: 'Hẻm', c: [[106.90008, 10.8], [106.90008, 10.81]] };
+  const south = { lon: 106.90002, lat: 10.805, acc: 5, heading: 180, speed: 8 };
+  assert.equal(matchLive([street, alley], south, null, true).piece.id, 5);
+  assert.equal(matchLive([street, alley], south, null, false).piece.id, 6);
+});
+
 test('nothing within reach means no match rather than a far-away road', () => {
   assert.equal(matchLive([main], { lon: 106.72, lat: 10.72, acc: 5 }), null);
 });

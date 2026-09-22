@@ -3,6 +3,7 @@ import { pointSegment, bearing, angleBetween } from './geo.js';
 import { roadFacts, roadLabel, PENALTY } from './lookup.js';
 import { guessZone } from './zone.js';
 import { statutoryLimit, withSign } from './limit.js';
+import { travel } from './oneway.js';
 
 export const TILE = 0.02;
 
@@ -13,15 +14,14 @@ export function tilesAround(lon, lat) {
   return out;
 }
 
-const ONEWAY = new Set(['yes', '1', 'true']);
-
-// fix: { lon, lat, acc, heading, speed (m/s) }; prev: the piece matched last time.
+// fix: { lon, lat, acc, heading, speed (m/s) }; prev: the piece matched last time;
+// bike: a xe máy, which may ride both ways on some streets one-way for cars.
 //
 // A single nearest-road rule fails exactly where it matters: at junctions, where a side
 // street is as close as the road you are on, and on divided roads, where the opposite
 // carriageway is a few metres away. So a moving car also has to agree with the road's
 // direction, and staying on the same road is cheaper than jumping to another.
-export function matchLive(pieces, fix, prev) {
+export function matchLive(pieces, fix, prev, bike = false) {
   const p = [fix.lon, fix.lat];
   const maxDist = Math.max(25, Math.min(fix.acc || 25, 60));
   const moving = fix.heading != null && fix.speed != null && fix.speed > 2;
@@ -34,9 +34,10 @@ export function matchLive(pieces, fix, prev) {
       let score = dist + (PENALTY[pc.highway] || 0);
       if (moving) {
         const br = bearing(a, b);
+        const way = travel(pc, bike);
         let d;
-        if (pc.oneway === '-1') d = angleBetween((br + 180) % 360, fix.heading);
-        else if (ONEWAY.has(pc.oneway) || pc.junction === 'roundabout' || /^motorway/.test(pc.highway)) d = angleBetween(br, fix.heading);
+        if (way === -1) d = angleBetween((br + 180) % 360, fix.heading);
+        else if (way === 1) d = angleBetween(br, fix.heading);
         else d = Math.min(angleBetween(br, fix.heading), angleBetween((br + 180) % 360, fix.heading));
         score += d > 60 ? 40 : d * 0.25;
       }

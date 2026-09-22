@@ -30,6 +30,9 @@ const DEMOS = {
 };
 
 const WALK = 650;   // metres of road ahead the view and the shoulder signs look at
+
+// A xe máy may ride both ways on some streets that are one-way for cars.
+const bike = () => !!(VEHICLES[state.vehicle] && VEHICLES[state.vehicle].twoWheeler);
 const SHOW_LIGHTS = 380;
 
 const state = {
@@ -122,7 +125,7 @@ async function start(demo) {
     walk: null, current: null, speedTarget: null, speedShown: 0, lastRect: null, roadName: null, hudLimit: null, stillScene: false,
     sources: { gps: 0, derived: 0, none: 0 }, motion: makeMotion(), fill: makeFixFiller(),
   });
-  state.hud = makeHud($('scene'), { theme: theme() });
+  state.hud = makeHud($('scene'), { theme: theme(), bike: bike() });
   state.canLook = true;
   $('recenter').hidden = true;
   setBadge(null, null);
@@ -231,7 +234,7 @@ function onFix(raw) {
 function place(fix, step) {
   {
     const pieces = piecesAround(fix.lon, fix.lat);
-    const m = matchLive(pieces, fix, state.prev);
+    const m = matchLive(pieces, fix, state.prev, bike());
     if (m) {
       state.prev = m.piece;
       const r = evaluate(m.piece, state.index, state.vehicle);
@@ -281,7 +284,7 @@ function ahead(pieces, m, fix, shownValue) {
     state.sceneAt = now;
     return;
   }
-  const walk = walkAhead(pieces, m, state.heading, WALK, from);
+  const walk = walkAhead(pieces, m, state.heading, WALK, from, bike());
   state.walk = walk;
   const moving = fix.speed != null && fix.speed >= 2;
   if (moving) {
@@ -325,7 +328,10 @@ function ensureTiles(lon, lat) {
   const loads = [];
   for (const k of want) {
     if (state.tiles.has(k)) { const t = state.tiles.get(k); if (t && t.then) loads.push(t); continue; }
-    const p = fetch(`tiles/${k}.json`)
+    // The tile format in the URL: tiles cached earlier the same day, of an older kind,
+    // are not mixed in with new ones.
+    const f = state.index && state.index.format;
+    const p = fetch(`tiles/${k}.json${f ? `?f=${f}` : ''}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((j) => {
         state.tiles.set(k, j);

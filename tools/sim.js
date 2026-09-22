@@ -8,11 +8,13 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tilesAround, matchLive, evaluate, makeStabiliser } from '../src/live.js';
 import { lightsAhead, reachFor, makeLightWatcher, lightPhrase } from '../src/lights.js';
 import { metresPerDegree } from '../src/geo.js';
+import { VEHICLES } from '../src/limit.js';
 
 const DIR = 'site/tiles';
 const args = process.argv.slice(2);
 const ref = args.find((a) => !a.startsWith('--'));
 const vehicle = args.includes('--xe') ? args[args.indexOf('--xe') + 1] : 'oto_con';
+const bike = !!VEHICLES[vehicle]?.twoWheeler;
 if (!ref) { console.error('usage: node tools/sim.js <ref, e.g. QL.13> [--south] [--xe oto_con]'); process.exit(1); }
 if (!existsSync(`${DIR}/index.json`)) { console.error('Build tiles first: npm run site'); process.exit(1); }
 
@@ -76,7 +78,7 @@ const pts = new Map();
     }
     last = fix;
     const pieces = tilesAround(fix.lon, fix.lat).flatMap(load);
-    const m = matchLive(pieces, fix, prev);
+    const m = matchLive(pieces, fix, prev, bike);
     if (!m) continue;
     prev = m.piece;
     const r = evaluate(m.piece, index, vehicle);
@@ -86,7 +88,7 @@ const pts = new Map();
       const val = r.limit.max ?? '—';
       console.log(`km ${km.toFixed(1).padStart(5)}  ${String(val).padStart(3)}  ${r.limit.tier.padEnd(9)} ${(r.name || r.label).slice(0, 28).padEnd(28)} ${r.wardName || ''} — ${r.zone.reason}`);
     }
-    const { speak } = watch(lightsAhead(pieces, m, fix, reachFor(fix.speed)));
+    const { speak } = watch(lightsAhead(pieces, m, fix, reachFor(fix.speed), bike));
     if (speak) {
       lights++;
       console.log(`km ${km.toFixed(1).padStart(5)}  ${lightPhrase(speak)}, còn ${Math.round(speak.dist)} m (node ${speak.id})`);

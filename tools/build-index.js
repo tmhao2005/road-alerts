@@ -61,7 +61,7 @@ for await (const raw of rl) {
   if (g.type === 'LineString' && DRIVABLE.has(p.highway)) {
     roads.push({
       id: p['@id'], highway: p.highway, name: p.name || null, ref: p.ref || null,
-      lanes: p.lanes || null, oneway: p.oneway || null, junction: p.junction || null,
+      lanes: p.lanes || null, oneway: p.oneway || null, onewayMoto: p['oneway:motorcycle'] || null, junction: p.junction || null,
       expressway: p.expressway || null,
       maxspeed: p.maxspeed || null, maxF: p['maxspeed:forward'] || null, maxB: p['maxspeed:backward'] || null,
       c: g.coordinates.map(round),

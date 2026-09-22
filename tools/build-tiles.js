@@ -77,7 +77,7 @@ function factsAt(x, y) {
   return { w, q, res };
 }
 
-const ATTRS = ['id', 'highway', 'name', 'ref', 'lanes', 'oneway', 'junction', 'expressway', 'maxspeed', 'maxF', 'maxB'];
+const ATTRS = ['id', 'highway', 'name', 'ref', 'lanes', 'oneway', 'onewayMoto', 'junction', 'expressway', 'maxspeed', 'maxF', 'maxB'];
 
 // Split each road where its ward / khu phố / residential facts change. Consecutive
 // pieces share the vertex at the change, so the road stays continuous.
@@ -140,6 +140,9 @@ writeFileSync(`${outDir}/index.json`, JSON.stringify({
   tile: TILE,
   bbox: data.bbox,
   built: new Date().toISOString().slice(0, 10),
+  // Bumped whenever a tile gains or changes a field. The app puts it in each tile's URL,
+  // so a phone holding tiles from earlier the same day fetches the new kind instead.
+  format: 2,
   wards: data.wards.map((w) => ({ n: w.name, k: w.kind })),
   quarters: data.quarters.map((q) => ({ n: q.name, k: q.kind })),
 }));

@@ -12,10 +12,11 @@ import { walkAhead } from './path.js';
 const MOVING = 2; // m/s; below this the heading is noise, and a car stopped at a light needs no warning
 
 // Lights facing the car within `reach` metres ahead, nearest first.
-// match: matchLive's result ({ piece, seg }); fix: { lon, lat, heading, speed }.
-export function lightsAhead(pieces, match, fix, reach) {
+// match: matchLive's result ({ piece, seg }); fix: { lon, lat, heading, speed }; bike: a
+// xe máy.
+export function lightsAhead(pieces, match, fix, reach, bike = false) {
   if (!match || fix.heading == null || !(fix.speed >= MOVING)) return [];
-  return walkAhead(pieces, match, fix.heading, reach, [fix.lon, fix.lat]).lights;
+  return walkAhead(pieces, match, fix.heading, reach, [fix.lon, fix.lat], bike).lights;
 }
 
 // How far ahead to look: about eight seconds of driving, so the warning arrives with time
