@@ -7,6 +7,7 @@ import { walkAhead, snapped } from './src/path.js';
 import { limitsAhead } from './src/ahead.js';
 import { makeMotion } from './src/motion.js';
 import { makeAutopilot } from './src/autopilot.js';
+import { makeFixFiller } from './src/fix.js';
 import { VEHICLES } from './src/limit.js';
 import { metresPerDegree } from './src/geo.js';
 import { makeHud } from './hud.js';
@@ -56,6 +57,7 @@ const state = {
   demo: null,
   hud: null,
   motion: null,
+  fill: makeFixFiller(),
   raf: null,
   sceneAt: 0,
   speedTarget: null,
@@ -117,7 +119,7 @@ async function start(demo) {
   Object.assign(state, {
     demo, stab: makeStabiliser(), lights: makeLightWatcher(), shown: null, prev: null, last: null, heading: null,
     walk: null, current: null, speedTarget: null, speedShown: 0, lastRect: null, roadName: null, hudLimit: null, stillScene: false,
-    sources: { gps: 0, derived: 0, none: 0 }, motion: makeMotion(),
+    sources: { gps: 0, derived: 0, none: 0 }, motion: makeMotion(), fill: makeFixFiller(),
   });
   state.hud = makeHud($('scene'), { theme: theme() });
   setBadge(null, null);
@@ -194,29 +196,14 @@ async function startDemo(d) {
   state.timer = setInterval(tick, 1000);
 }
 
-function metres(a, b) {
-  const m = metresPerDegree(a.lat);
-  return Math.hypot((a.lon - b.lon) * m.x, (a.lat - b.lat) * m.y);
-}
-
-function onFix(fix) {
-  let step = 0;
-  // Which of the phone's numbers were real, so the trip log can show whether Safari's
-  // missing speed and heading ever mattered.
-  fix.speedSrc = fix.speed != null ? 'gps' : null;
-  fix.headingSrc = fix.heading != null ? 'gps' : null;
-  if (state.last) {
-    step = metres(fix, state.last);
-    const dt = (fix.t - state.last.t) / 1000;
-    // Safari sometimes omits speed and heading; derive them from movement when it does.
-    if (fix.speed == null && dt > 0.5) { fix.speed = step / dt; fix.speedSrc = 'derived'; }
-    if (fix.heading == null && step > 4) {
-      const m = metresPerDegree(fix.lat);
-      fix.heading = ((Math.atan2((fix.lon - state.last.lon) * m.x, (fix.lat - state.last.lat) * m.y) * 180) / Math.PI + 360) % 360;
-      fix.headingSrc = 'derived';
-    }
-  }
+function onFix(raw) {
+  // Safari leaves out speed and heading when iOS has none; fillMotion works them out,
+  // without mistaking a parked phone's GPS wobble for driving. Where each came from goes in
+  // the trip log.
+  const fix = state.fill(raw);
+  const step = fix.moved;
   state.last = fix;
+  state.lastFixAt = performance.now();
   state.sources[fix.speedSrc || 'none']++;
   if (fix.heading != null && (fix.speed == null || fix.speed > 1.5 || state.heading == null)) state.heading = fix.heading;
 
@@ -256,8 +243,23 @@ function onFix(fix) {
 // The road ahead: one walk feeds the drawn road, the lights and the shoulder signs, so
 // they always agree about which road the car is about to be on.
 function ahead(pieces, m, fix, shownValue) {
-  if (state.heading == null) return;
+  // Standing still, the scene is left alone after the first stopped fix, so the frame
+  // loop can go idle instead of redrawing GPS wobble.
+  const stopped = !(fix.speed > 0.8);
+  if (stopped && state.stillScene) return;
+  state.stillScene = stopped;
+  const now = performance.now() / 1000;
   const from = snapped(m);
+  // A phone that has not moved yet has no direction, so nothing is "ahead": the map is
+  // drawn north-up around the car, with no road picked out and no shoulder signs, until
+  // the first real movement turns it.
+  if (state.heading == null) {
+    state.walk = null;
+    state.motion.fix(now, [from], 0);
+    state.hud.setScene({ pieces, at: from, walk: null, piece: m.piece }, now);
+    state.sceneAt = now;
+    return;
+  }
   const walk = walkAhead(pieces, m, state.heading, WALK, from);
   state.walk = walk;
   const moving = fix.speed != null && fix.speed >= 2;
@@ -285,14 +287,8 @@ function ahead(pieces, m, fix, shownValue) {
     return state.heading;
   };
   const lights = walk.lights.filter((l) => l.dist <= SHOW_LIGHTS).map((l) => ({ ...l, bearing: bearingAt(l.dist) }));
-  // Standing still, the scene is left alone after the first stopped fix, so the frame
-  // loop can go idle instead of redrawing GPS wobble.
-  const stopped = !(fix.speed > 0.8);
-  if (stopped && state.stillScene) return;
-  state.stillScene = stopped;
-  const now = performance.now() / 1000;
   state.motion.fix(now, walk.pts, fix.speed);
-  state.hud.setScene({ pieces, walk, piece: m.piece, lights, limits }, now);
+  state.hud.setScene({ pieces, at: from, walk, piece: m.piece, lights, limits }, now);
   state.sceneAt = now;
 }
 
@@ -484,6 +480,11 @@ function startLoop() {
 
 // The speed counts toward each new reading instead of jumping once a second.
 function speedTick(dt) {
+  // A tunnel, or GPS gone quiet: the last speed is no longer a reading, so it is not shown
+  // as one.
+  if (state.speedTarget != null && performance.now() - (state.lastFixAt || 0) > 4000) state.speedTarget = null;
+  // No reading yet is shown as a quiet dash, not as a number.
+  $('speed').classList.toggle('none', state.speedTarget == null);
   if (state.speedTarget == null) { $('speed').textContent = '–'; return; }
   state.speedShown += (state.speedTarget - state.speedShown) * (1 - Math.exp(-dt / 0.35));
   const v = String(Math.round(state.speedShown));

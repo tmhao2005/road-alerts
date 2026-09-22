@@ -141,6 +141,7 @@ select {
   font-variant-numeric: tabular-nums; transition: color 0.3s ease;
 }
 .speed-num.over { color: var(--over); }
+.speed-num.none { color: var(--faint); font-weight: 500; }
 .speed-unit { font-size: 16px; color: var(--muted); font-weight: 600; margin-top: 8px; }
 
 .badge { display: flex; flex-direction: column; align-items: center; gap: 9px; }

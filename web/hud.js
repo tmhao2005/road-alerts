@@ -60,6 +60,7 @@ export function makeHud(canvas, options = {}) {
   const boards = new Map();    // shoulder items by id, kept a moment after they are passed
   const rects = new Map();     // last on-screen box of each shoulder sign, for the badge
   let carShift = 0;            // metres right of the centre line, eased
+  let viewBearing = null;      // the camera's heading; north-up until the car's is known
 
   // Capped at the window: before the stylesheet applies, a canvas's box follows its own
   // pixel size, and growing one to fit the other never stops.
@@ -314,6 +315,17 @@ export function makeHud(canvas, options = {}) {
     path(at(shape)); ctx.fillStyle = theme.puck; ctx.fill();
   }
 
+  // Where the car is, facing nowhere yet: the plain location dot, not an arrow that would
+  // claim a direction.
+  function drawDot() {
+    const [x, y] = view.project(0, 0);
+    ctx.save();
+    ctx.shadowColor = theme.shadow; ctx.shadowBlur = 12; ctx.shadowOffsetY = 3;
+    ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2); ctx.fillStyle = theme.puckRim; ctx.fill();
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(x, y, 8.5, 0, Math.PI * 2); ctx.fillStyle = theme.puck; ctx.fill();
+  }
+
   function path(pts) {
     ctx.beginPath();
     pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
@@ -420,12 +432,12 @@ export function makeHud(canvas, options = {}) {
 
     // Called at each fix. lights and limits carry { at: [lon, lat], bearing }; the
     // renderer stands them on the right shoulder of the road ahead.
-    setScene({ pieces, walk, piece, lights = [], limits = [] }, now) {
-      if (!origin && walk) { origin = walk.pts[0]; m = metresPerDegree(origin[1]); }
+    // at: the car's [lon, lat]. walk is null while the direction of travel is unknown.
+    setScene({ pieces, at, walk = null, piece, lights = [], limits = [] }, now) {
+      if (!origin && at) { origin = at; m = metresPerDegree(origin[1]); }
       if (!origin) return;
       // A city-centre block of tiles holds ~20,000 pieces; only the ones within reach of
       // the view are worth transforming every frame.
-      const at = walk ? walk.pts[0] : origin;
       const k = metresPerDegree(at[1]);
       const rx = 1100 / k.x, ry = 1100 / k.y, mx = 550 / k.x, my = 550 / k.y;
       const near = [];
@@ -475,20 +487,24 @@ export function makeHud(canvas, options = {}) {
       if (!view || bw !== W || bh !== H) resize();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawGround();
-      if (!pose || !origin || pose.bearing == null) return;
+      if (!pose || !origin) return;
+      const oriented = pose.bearing != null;
+      // The first real heading swings the view round from north-up rather than snapping;
+      // after that the motion module has already smoothed it.
+      const target = oriented ? pose.bearing : 0;
+      const turn = viewBearing == null ? 0 : ((target - viewBearing + 540) % 360) - 180;
+      viewBearing = viewBearing == null || Math.abs(turn) < 25 ? target : (viewBearing + turn * (1 - Math.exp(-dt / 0.45)) + 360) % 360;
       const piece = scene.piece;
-      const target = piece && TWO_WAY(piece) ? roadWidth(piece) / 4 : 0;
-      carShift += (target - carShift) * (1 - Math.exp(-dt / 0.6));
+      const shift = oriented && piece && TWO_WAY(piece) ? roadWidth(piece) / 4 : 0;
+      carShift += (shift - carShift) * (1 - Math.exp(-dt / 0.6));
       const [cx, cy] = toXY(pose.lon, pose.lat);
-      const b = (pose.bearing * Math.PI) / 180;
+      const b = (viewBearing * Math.PI) / 180;
       // The camera sits on the car, including its lane, so the road opens up to its left.
-      const cam = { x: cx + Math.cos(b) * carShift, y: cy - Math.sin(b) * carShift, bearing: pose.bearing };
+      const cam = { x: cx + Math.cos(b) * carShift, y: cy - Math.sin(b) * carShift, bearing: viewBearing };
       drawRoads(cam);
-      drawAhead(cam);
-      drawLanes(cam);
+      if (oriented) { drawAhead(cam); drawLanes(cam); }
       drawFog();
-      drawCar();
-      drawBoards(cam, now);
+      if (oriented) { drawCar(); drawBoards(cam, now); } else drawDot();
     },
 
     // Where the shoulder sign for this limit was last drawn, so the badge can take it over.
