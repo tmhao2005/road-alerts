@@ -54,7 +54,7 @@ its own icon.
 | [`docs/spike-brief.md`](docs/spike-brief.md) | What the data spike set out to answer |
 | [`docs/spike-results.md`](docs/spike-results.md) | The five spike numbers and what they imply |
 | This README | Everything learned since: the law, competitors, platforms, design |
-| [`src/`](src) | The speed law, the đông dân cư guess, map lookup, the road ahead, lights, smooth motion and the view's projection, with tests |
+| [`src/`](src) | The speed law, the đông dân cư guess, map lookup, the road ahead, lights, smooth motion, the view's camera and how fingers are read, with tests |
 | [`web/`](web) | The test app: page, road view renderer, offline worker, icon |
 | [`tools/`](tools) | Data preparation, the coordinate tester, the route simulator and the local server |
 | [`CLAUDE.md`](CLAUDE.md) | Early thinking and working conventions. Treat as ideas, not settled decisions |
@@ -350,10 +350,16 @@ The road view is built into the test app from the phone's own map tiles:
   passed flies into it. Signs that line up stack on one pole, like plates on a real post.
 - **Redrawn at 30 frames a second at most, and not at all when standing still**, because
   the phone is on for the whole drive in a hot car.
-- **Looking around only while stopped.** Parked or at a light, one finger drags the map and
-  two pinch and twist it, with a "Về vị trí" pill to spring back. Once the car moves the
-  view springs back by itself and fingers do nothing but show "Dừng xe để xem bản đồ": a
-  map left turned while driving no longer matches the windscreen.
+- **Looking around only while stopped.** Parked or at a light, the map moves the way Apple
+  and Google Maps do: one finger drags and a flick glides; two pinch and turn about the
+  fingers (turning only past 12°, so a pinch does not knock the map askew) or, side by
+  side, slide up and down to tilt; a double tap zooms in, a two-finger tap zooms out, and a
+  double tap held and dragged zooms with one finger. **Zooming out lifts the camera and
+  tips it toward straight down**, so the streets around the car spread out instead of
+  piling up at the horizon; zooming back in returns to the driver's angle. A "Về vị trí"
+  pill springs it all back. Once the car moves the view springs back by itself and fingers
+  do nothing but show "Dừng xe để xem bản đồ": a map left turned while driving no longer
+  matches the windscreen.
 - **Until the phone first moves it has no direction**, so the map is north-up around a
   location dot, with nothing picked out ahead.
 

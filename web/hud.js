@@ -4,7 +4,7 @@
 // It draws only what the map says. Lane lines appear only where the map counts lanes, the
 // road ahead is picked out only as far as it obviously goes, and a shoulder sign only
 // where the badge is going to change.
-import { makeView, toCamera } from './src/view.js';
+import { makeView, toCamera, follow, ZOOM } from './src/view.js';
 import { metresPerDegree } from './src/geo.js';
 
 // Carriageway widths in metres, a little generous so a side street still reads at a glance.
@@ -62,28 +62,127 @@ export function makeHud(canvas, options = {}) {
   let carShift = 0;            // metres right of the centre line, eased
   let viewBearing = null;      // the camera's heading; north-up until the car's is known
   // Where the user has moved the view while stopped: metres east/north of the car, degrees
-  // turned, and zoom. All zero means the view follows the car.
-  const user = { x: 0, y: 0, turn: 0, zoom: 1 };
+  // turned, zoom, and degrees tipped by hand. This at rest means the view follows the car.
+  const user = { x: 0, y: 0, turn: 0, zoom: 1, tilt: 0 };
   let back = false;            // springing back to the car
   let dirty = false;           // moved by a finger since the last frame
-  let builtZoom = 1;
-  let lastCam = null;
+  let glide = null;            // an animated zoom: { zoom, at } to reach, about a screen point
+  let coast = null;            // momentum after the fingers let go: { v: px/s, zoom: log/s, at }
+  let raw = 1;                 // the zoom the fingers asked for, before the limits push back
+  let focus = null;            // where the fingers last were, to spring back about
+  let carCam = null;           // the car's own camera at the last frame: where it follows
   const baseScale = (options.view && options.view.scale) || 7;
-  const REACH = 800;           // the tiles around the car cover about this far
+  // The 3x3 tiles around the car reach at least 2.2 km from it; the view is kept inside.
+  const REACH = 1000;
+  const FAR = 1600;
+  let pool = [], poolAt = null, gathered = 0;
 
   // Capped at the window: before the stylesheet applies, a canvas's box follows its own
   // pixel size, and growing one to fit the other never stops.
   const box = () => options.size || [Math.min(canvas.clientWidth, innerWidth) || 1, Math.min(canvas.clientHeight, innerHeight) || 1];
 
+  // Landscape on a dashboard mount: the numbers take the right-hand column, so the road is
+  // centred in what is left.
+  const viewFor = (zoom, tilt) => makeView({
+    width: W, height: H, ...(W > H * 1.2 ? { carX: 0.3, carY: 0.7, horizonY: 0.12 } : {}),
+    ...options.view, scale: baseScale, zoom, tilt,
+  });
+
   function resize() {
     dpr = Math.min(2, window.devicePixelRatio || 1);
     [W, H] = box();
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-    // Landscape on a dashboard mount: the numbers take the right-hand column, so the road
-    // is centred in what is left.
-    const wide = W > H * 1.2;
-    view = makeView({ width: W, height: H, ...(wide ? { carX: 0.3, carY: 0.7, horizonY: 0.12 } : {}), ...options.view, scale: baseScale * user.zoom });
-    builtZoom = user.zoom;
+    view = viewFor(user.zoom, user.tilt);
+  }
+
+  // A city-centre block of tiles holds ~20,000 pieces; only the ones within reach of the
+  // view are worth transforming every frame. Minor streets matter only nearer the car.
+  function gather(major, minor) {
+    const k = metresPerDegree(poolAt[1]);
+    const rx = major / k.x, ry = major / k.y, mx = minor / k.x, my = minor / k.y;
+    const near = [];
+    for (const p of pool) {
+      let e = extent.get(p);
+      if (!e) {
+        e = [Infinity, Infinity, -Infinity, -Infinity];
+        for (const [x, y] of p.c) { if (x < e[0]) e[0] = x; if (y < e[1]) e[1] = y; if (x > e[2]) e[2] = x; if (y > e[3]) e[3] = y; }
+        extent.set(p, e);
+      }
+      const minorRoad = (RANK[p.highway] ?? 1) <= 1;
+      const ex = minorRoad ? mx : rx, ey = minorRoad ? my : ry;
+      if (e[2] < poolAt[0] - ex || e[0] > poolAt[0] + ex || e[3] < poolAt[1] - ey || e[1] > poolAt[1] + ey) continue;
+      near.push(p);
+    }
+    scene.pieces = near;
+    gathered = Math.min(major, minor);
+  }
+
+  // Zoomed out or looking elsewhere, the view sees further from the car than the driving
+  // view does, so more of the tiles are brought in, once, as it grows.
+  function widen() {
+    let r = 0;
+    for (const [sx, sy] of [[0, 0], [W, 0], [0, H], [W, H]]) r = Math.max(r, Math.hypot(...view.unproject(sx, sy)));
+    const need = Math.min(2400, Math.hypot(user.x, user.y) + Math.min(FAR, r) + 100);
+    if (need > gathered) gather(Math.max(1100, need), Math.max(550, need));
+  }
+
+  // The hand's camera: where it looks, which way, how far out and how tipped.
+  function handCam() {
+    return { x: carCam.x + user.x, y: carCam.y + user.y, bearing: (carCam.bearing + user.turn + 360) % 360, zoom: user.zoom, tilt: user.tilt };
+  }
+  function setHand(c) {
+    user.x = c.x - carCam.x; user.y = c.y - carCam.y;
+    user.turn = ((c.bearing - carCam.bearing + 540) % 360) - 180;
+    user.zoom = c.zoom; user.tilt = c.tilt;
+    const far = Math.hypot(user.x, user.y);
+    if (far > REACH) { user.x *= REACH / far; user.y *= REACH / far; }
+    view = viewFor(user.zoom, user.tilt);
+    back = false; dirty = true;
+  }
+  const move = (a, b, change) => { if (carCam && W) setHand(follow(viewFor, handCam(), a, b, change)); };
+
+  // Past the zoom limits the map gives a little, with growing resistance, and springs back
+  // when let go.
+  function soft(z) {
+    if (z > ZOOM.max) return ZOOM.max * Math.pow(z / ZOOM.max, 0.3);
+    if (z < ZOOM.min) return ZOOM.min * Math.pow(z / ZOOM.min, 0.3);
+    return z;
+  }
+  const clampZoom = (z) => Math.max(ZOOM.min, Math.min(ZOOM.max, z));
+
+  function pan(a, b) {
+    if (!carCam || !W) return;
+    const cur = handCam(), next = follow(viewFor, cur, a, b);
+    // A drag near the horizon is not a 2 km jump.
+    const dx = next.x - cur.x, dy = next.y - cur.y, len = Math.hypot(dx, dy);
+    const cap = Math.max(150, (2 * Math.hypot(b[0] - a[0], b[1] - a[1])) / view.px);
+    if (len > cap) { next.x = cur.x + (dx * cap) / len; next.y = cur.y + (dy * cap) / len; }
+    setHand(next);
+  }
+
+  // Momentum and animated zooms, a frame at a time.
+  function animate(dt) {
+    if (glide) {
+      const left = Math.log(glide.zoom / user.zoom);
+      const step = Math.abs(left) < 0.004 ? left : left * (1 - Math.exp(-dt / 0.08));
+      move(glide.at, glide.at, { zoom: Math.exp(step) });
+      if (step === left) glide = null;
+      raw = user.zoom;
+    }
+    if (coast) {
+      const { v, at } = coast;
+      if (Math.hypot(v[0], v[1]) > 15) pan(at, [at[0] + v[0] * dt, at[1] + v[1] * dt]);
+      if (Math.abs(coast.zoom) > 0.02) {
+        const to = clampZoom(user.zoom * Math.exp(coast.zoom * dt));
+        move(at, at, { zoom: to / user.zoom });
+        if (to === ZOOM.min || to === ZOOM.max) coast.zoom = 0;
+      }
+      const fade = Math.exp(-dt / 0.4);
+      coast.v = [v[0] * fade, v[1] * fade];
+      coast.zoom *= Math.exp(-dt / 0.15);
+      raw = user.zoom;
+      if (Math.hypot(...coast.v) <= 15 && Math.abs(coast.zoom) <= 0.02) coast = null;
+    }
   }
 
   const toXY = (lon, lat) => [(lon - origin[0]) * m.x, (lat - origin[1]) * m.y];
@@ -167,13 +266,19 @@ export function makeHud(canvas, options = {}) {
 
   // How far to either side is on screen at depth z, plus a margin for wide roads.
   const visibleHalf = (z) => W / 2 / (view.px * view.factor(z)) + 40;
+  // Seen from high up a road is still a line, not a hairline: at least this wide, in metres
+  // at the current zoom, for a main road, a lesser one and a side street.
+  const minHalf = (rank) => (rank >= 3 ? 1.6 : rank === 2 ? 1.2 : 0.9) / view.px;
 
   function drawGround() {
     const g = ctx.createLinearGradient(0, 0, 0, H);
     const hz = view.yHor / H;
-    g.addColorStop(0, theme.sky[0]);
-    g.addColorStop(Math.max(0, hz - 0.02), theme.sky[1]);
-    g.addColorStop(Math.min(1, hz + 0.02), theme.ground[0]);
+    // Looking down from high enough, there is no sky on screen at all.
+    if (hz > 0.02) {
+      g.addColorStop(0, theme.sky[0]);
+      g.addColorStop(hz - 0.02, theme.sky[1]);
+    }
+    g.addColorStop(Math.max(0, Math.min(1, hz + 0.02)), theme.ground[0]);
     g.addColorStop(1, theme.ground[1]);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
@@ -190,13 +295,14 @@ export function makeHud(canvas, options = {}) {
         if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
         if (x < minX) minX = x; if (x > maxX) maxX = x;
       }
-      if (maxZ < view.near || minZ > 1600) continue;
+      if (maxZ < Math.max(view.near, view.back - 30) || minZ > Math.min(FAR, view.far + 30)) continue;
       const reach = visibleHalf(Math.max(0, maxZ));
       if (minX > reach || maxX < -reach) continue;
       const rank = RANK[piece.highway] ?? 1;
-      if (rank <= 1 && minZ > 500) continue;
+      if (rank <= 1 && minZ > 500 / Math.min(1, view.zoom)) continue;
+      if (rank === 0 && view.px < 0.9) continue;
       const runs = clipRuns(cam, xy);
-      if (runs.length) drawn.push({ piece, runs, rank, half: roadWidth(piece) / 2 });
+      if (runs.length) drawn.push({ piece, runs, rank, half: Math.max(roadWidth(piece) / 2, minHalf(rank)) });
     }
     drawn.sort((a, b) => a.rank - b.rank);
     // All casings first, then all surfaces, so junctions merge instead of overlapping;
@@ -204,12 +310,15 @@ export function makeHud(canvas, options = {}) {
     for (const pass of ['casing', 'surface']) {
       for (let i = 0; i < drawn.length;) {
         const rank = drawn[i].rank, minor = rank <= 1;
-        const extra = pass === 'casing' ? 1.1 : 0;
+        const extra = pass === 'casing' ? Math.max(1.1, 0.7 / view.px) : 0;
         ctx.beginPath();
         for (; i < drawn.length && drawn[i].rank === rank; i++) {
           const d = drawn[i];
+          // Round joints only where a road is wide enough on screen for a notch to show.
+          const joints = (d.half + extra) * view.px > 3;
           for (const run of d.runs) {
             ribbonPath(run, d.half + extra);
+            if (!joints) continue;
             discPath(run[0], d.half + extra);
             discPath(run[run.length - 1], d.half + extra);
           }
@@ -229,7 +338,7 @@ export function makeHud(canvas, options = {}) {
     walk.pts.forEach(([lon, lat], i) => { const p = toXY(lon, lat); xy[2 * i] = p[0]; xy[2 * i + 1] = p[1]; });
     const runs = clipRuns(cam, xy);
     if (!runs.length) return;
-    const half = (scene.piece ? roadWidth(scene.piece) : 8) / 2;
+    const half = Math.max((scene.piece ? roadWidth(scene.piece) : 8) / 2, minHalf(3));
     const endRun = runs[runs.length - 1];
     const end = view.project(...endRun[endRun.length - 1]);
     const car = view.project(0, 0);
@@ -247,7 +356,7 @@ export function makeHud(canvas, options = {}) {
   // Lane lines, only where the map counts the lanes; near the car only, where they help.
   function drawLanes(cam) {
     const walk = scene.walk;
-    if (!walk) return;
+    if (!walk || view.px < 3) return;
     for (const leg of walk.legs) {
       const p = leg.piece;
       const lanes = parseInt(p.lanes, 10);
@@ -306,21 +415,28 @@ export function makeHud(canvas, options = {}) {
     ctx.fill();
   }
 
+  // Haze toward the horizon, over where the loaded map runs out. It thins as the camera
+  // rises, and there is none looking straight down.
   function drawFog() {
-    const g = ctx.createLinearGradient(0, view.yHor, 0, view.yHor + (view.yCar - view.yHor) * 0.42);
+    const band = (view.yCar - view.yHor) * 0.42 * Math.min(1, view.zoom);
+    if (!Number.isFinite(band) || view.yHor + band < 0) return;
+    const g = ctx.createLinearGradient(0, view.yHor, 0, view.yHor + band);
     g.addColorStop(0, `${theme.fog}1)`);
     g.addColorStop(1, `${theme.fog}0)`);
     ctx.fillStyle = g;
-    ctx.fillRect(0, view.yHor - 2, W, (view.yCar - view.yHor) * 0.42 + 2);
+    ctx.fillRect(0, view.yHor - 2, W, band + 2);
   }
 
   // The car: an arrow lying on the road, the way the map apps draw it.
   // car: where the car is in camera space; rel: its heading relative to the view, degrees.
+  // It keeps its size on screen whatever the zoom, like the map apps' arrow.
   function drawCar(car, rel) {
+    if (car[1] < view.near + 2) return;
     const shape = [[0, 4.2], [2.7, -3.0], [0, -1.5], [-2.7, -3.0]];
     const r = (rel * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+    const k = 1 / view.zoom;
     const at = (pts, grow = 0) => pts.map(([x, z]) => {
-      const gx = x * (1 + grow), gz = z * (1 + grow);
+      const gx = x * k * (1 + grow), gz = z * k * (1 + grow);
       return view.project(car[0] + gx * c + gz * s, car[1] - gx * s + gz * c);
     });
     ctx.save();
@@ -333,6 +449,7 @@ export function makeHud(canvas, options = {}) {
   // Where the car is, facing nowhere yet: the plain location dot, not an arrow that would
   // claim a direction.
   function drawDot(car) {
+    if (car[1] < view.near + 2) return;
     const [x, y] = view.project(car[0], car[1]);
     ctx.save();
     ctx.shadowColor = theme.shadow; ctx.shadowBlur = 12; ctx.shadowOffsetY = 3;
@@ -343,10 +460,11 @@ export function makeHud(canvas, options = {}) {
 
   function settle(dt) {
     const k = 1 - Math.exp(-dt / 0.14);
-    user.x -= user.x * k; user.y -= user.y * k; user.turn -= user.turn * k;
-    user.zoom += (1 - user.zoom) * k;
-    if (Math.hypot(user.x, user.y) < 0.3 && Math.abs(user.turn) < 0.3 && Math.abs(user.zoom - 1) < 0.004) {
-      user.x = 0; user.y = 0; user.turn = 0; user.zoom = 1; back = false;
+    user.x -= user.x * k; user.y -= user.y * k; user.turn -= user.turn * k; user.tilt -= user.tilt * k;
+    user.zoom = Math.exp(Math.log(user.zoom) * (1 - k));
+    raw = user.zoom;
+    if (Math.hypot(user.x, user.y) < 0.3 && Math.abs(user.turn) < 0.3 && Math.abs(user.zoom - 1) < 0.004 && Math.abs(user.tilt) < 0.3) {
+      user.x = 0; user.y = 0; user.turn = 0; user.zoom = 1; user.tilt = 0; back = false;
     }
   }
 
@@ -359,34 +477,39 @@ export function makeHud(canvas, options = {}) {
   // Signs shrink with distance, but gently: at 300 m a sign is still a sign, not a dot.
   const signSize = (f) => Math.max(26, Math.min(66, 70 * Math.pow(f, 0.55)));
 
-  function drawBoards(cam, now) {
+  // cam places the signs; car is the car's own camera, which says how far ahead each one
+  // is, whichever way the map has been moved.
+  function drawBoards(cam, car, now) {
     const list = [];
     for (const b of boards.values()) {
       const [x, z] = toCamera(cam, b.x, b.y);
-      if (z < -25 || z > 1600) continue;
-      list.push({ b, x, z });
+      const ahead = cam === car ? z : toCamera(car, b.x, b.y)[1];
+      if (ahead < -25 || z < view.near + 2 || z > FAR) continue;
+      list.push({ b, x, z, ahead });
     }
     // Nearest first, so a farther sign that would land on a nearer one is lifted above it
     // on a taller pole, the way plates stack on a real signpost.
     list.sort((a, c) => a.z - c.z);
     rects.clear();
     const placed = [], jobs = [];
-    for (const { b, x, z } of list) {
+    for (const { b, x, z, ahead } of list) {
       const [sx, sy, f] = view.project(x, z);
       const age = now - b.born;
       // Passed: it slides away behind the car. Dropped while still ahead (the road ahead
       // turned out different): it fades where it stands, quickly.
-      const leaving = b.gone != null && z > 5 ? Math.max(0, 1 - (now - b.gone) / 0.3) : 1;
+      const leaving = b.gone != null && ahead > 5 ? Math.max(0, 1 - (now - b.gone) / 0.3) : 1;
       if (leaving === 0) continue;
-      const alpha = Math.min(1, age / 0.35) * (z < 0 ? Math.max(0, 1 + z / 25) : 1) * leaving;
+      const alpha = Math.min(1, age / 0.35) * (ahead < 0 ? Math.max(0, 1 + ahead / 25) : 1) * leaving;
       const pop = age < 0.6 ? 1 - 0.35 * Math.exp(-age * 9) * Math.cos(age * 14) : 1;
-      const size = signSize(f) * pop;
+      // From high up a sign is a marker on a map, not a post at the roadside, so it is
+      // drawn smaller, down to about 60%.
+      const size = signSize(f) * pop * Math.min(1, 0.4 + 0.6 * Math.sqrt(view.zoom));
       const tall = b.kind === 'light' ? size * 1.08 : size;
       // The box a sign takes: the plate plus the distance label hanging under it.
-      const below = z > 12 ? 44 : 6;
+      const below = ahead > 12 ? 44 : 6;
       let pole = size * 0.85;
       let top = sy - pole - tall;
-      const left = sx - size / 2, right = sx + size / 2 + (z > 12 ? 64 : 0);
+      const left = sx - size / 2, right = sx + size / 2 + (ahead > 12 ? 64 : 0);
       for (const r of placed) {
         if (left < r.right && right > r.left && top < r.bottom && top + tall + below > r.top) {
           top = r.top - 6 - tall - below;
@@ -394,18 +517,18 @@ export function makeHud(canvas, options = {}) {
         }
       }
       placed.push({ left, right, top, bottom: top + tall + below });
-      jobs.push({ b, z, sx, sy, size, tall, pole, alpha });
+      jobs.push({ b, ahead, sx, sy, size, tall, pole, alpha });
     }
     // Paint far to near, so near things sit in front.
     for (const j of jobs.reverse()) {
-      const { b, z, sx, sy, size, tall, pole, alpha } = j;
+      const { b, ahead, sx, sy, size, tall, pole, alpha } = j;
       ctx.globalAlpha = alpha;
       ctx.strokeStyle = theme.pole; ctx.lineWidth = Math.max(1.5, size * 0.06);
       ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx, sy - pole); ctx.stroke();
       const cy = sy - pole - tall / 2;
       if (b.kind === 'limit') { drawLimitSign(sx, cy, size, b.max); rects.set(b.max, { x: sx - size / 2, y: cy - size / 2, size }); }
       else drawLamp(sx, cy, size);
-      if (z > 12) distancePill(sx, cy + tall / 2 + 20, size, Math.max(10, Math.round(z / 10) * 10));
+      if (ahead > 12) distancePill(sx, cy + tall / 2 + 20, size, Math.max(10, Math.round(ahead / 10) * 10));
       ctx.globalAlpha = 1;
     }
   }
@@ -460,24 +583,9 @@ export function makeHud(canvas, options = {}) {
     setScene({ pieces, at, walk = null, piece, lights = [], limits = [] }, now) {
       if (!origin && at) { origin = at; m = metresPerDegree(origin[1]); }
       if (!origin) return;
-      // A city-centre block of tiles holds ~20,000 pieces; only the ones within reach of
-      // the view are worth transforming every frame.
-      const k = metresPerDegree(at[1]);
-      const rx = 1100 / k.x, ry = 1100 / k.y, mx = 550 / k.x, my = 550 / k.y;
-      const near = [];
-      for (const p of pieces) {
-        let e = extent.get(p);
-        if (!e) {
-          e = [Infinity, Infinity, -Infinity, -Infinity];
-          for (const [x, y] of p.c) { if (x < e[0]) e[0] = x; if (y < e[1]) e[1] = y; if (x > e[2]) e[2] = x; if (y > e[3]) e[3] = y; }
-          extent.set(p, e);
-        }
-        const minor = (RANK[p.highway] ?? 1) <= 1;
-        const ex = minor ? mx : rx, ey = minor ? my : ry;
-        if (e[2] < at[0] - ex || e[0] > at[0] + ex || e[3] < at[1] - ey || e[1] > at[1] + ey) continue;
-        near.push(p);
-      }
-      scene = { pieces: near, walk, piece };
+      pool = pieces; poolAt = at;
+      scene = { pieces: [], walk, piece };
+      gather(1100, 550);
       const half = piece ? roadWidth(piece) / 2 : 5;
       // One lamp per junction: a junction is often mapped as a signal node per approach.
       const lamps = [];
@@ -508,8 +616,10 @@ export function makeHud(canvas, options = {}) {
     draw(pose, now, dt = 0) {
       // Follows its box: rotation, the stylesheet arriving late, a split-screen resize.
       const [bw, bh] = box();
-      if (back) settle(dt);
-      if (!view || bw !== W || bh !== H || builtZoom !== user.zoom) resize();
+      if (!view || bw !== W || bh !== H) resize();
+      const step = Math.min(dt, 0.05);
+      if (back) settle(step); else animate(step);
+      view = viewFor(user.zoom, user.tilt);
       dirty = false;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawGround();
@@ -528,47 +638,56 @@ export function makeHud(canvas, options = {}) {
       // The camera sits on the car, including its lane, so the road opens up to its left -
       // unless it has been moved by hand while stopped.
       const carX = cx + Math.cos(b) * carShift, carY = cy - Math.sin(b) * carShift;
-      const cam = { x: carX + user.x, y: carY + user.y, bearing: (viewBearing + user.turn + 360) % 360 };
-      lastCam = cam;
+      carCam = { x: carX, y: carY, bearing: viewBearing };
+      const moved = this.moved();
+      const cam = moved ? handCam() : carCam;
+      if (moved && poolAt) widen();
       const car = toCamera(cam, carX, carY);
       drawRoads(cam);
       if (oriented) { drawAhead(cam); drawLanes(cam); }
       drawFog();
-      if (oriented) { drawCar(car, -user.turn); drawBoards(cam, now); } else drawDot(car);
+      if (oriented) { drawCar(car, -user.turn); drawBoards(cam, carCam, now); } else drawDot(car);
     },
 
-    // Looking around while stopped. a, b: a finger's previous and current position in the
-    // canvas's CSS pixels. The ground under the finger stays under the finger.
-    pan(a, b) {
-      if (!view || !lastCam) return;
-      const g0 = view.unproject(a[0], a[1]), g1 = view.unproject(b[0], b[1]);
-      let dx = g0[0] - g1[0], dz = g0[1] - g1[1];
-      const len = Math.hypot(dx, dz);
-      if (len > 150) { dx *= 150 / len; dz *= 150 / len; } // a flick near the horizon is not a 2 km jump
-      const r = (lastCam.bearing * Math.PI) / 180;
-      user.x += dx * Math.cos(r) + dz * Math.sin(r);
-      user.y += -dx * Math.sin(r) + dz * Math.cos(r);
-      const far = Math.hypot(user.x, user.y);
-      if (far > REACH) { user.x *= REACH / far; user.y *= REACH / far; }
-      back = false; dirty = true;
+    // Looking around while stopped, the way a map app does it. Screen points are in the
+    // canvas's CSS pixels, and the ground under a finger stays under that finger.
+    // A finger landing stops whatever the map was still doing.
+    hold() { coast = null; glide = null; back = false; raw = user.zoom; },
+    // One finger moved from a to b.
+    pan,
+    // Two fingers: their centre moved from a to b while they spread by ratio and turned
+    // the map by turn degrees.
+    pinch(a, b, ratio, turn = 0) {
+      if (!(ratio > 0) || !Number.isFinite(ratio)) return;
+      raw *= ratio;
+      move(a, b, { zoom: soft(raw) / user.zoom, turn });
+      focus = b;
     },
-
-    // Two fingers: a0, b0 before, a1, b1 now. Twisting turns the map with the fingers,
-    // pinching zooms, and moving both drags.
-    twist(a0, b0, a1, b1) {
-      const angle = (p, q) => (Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI;
-      const d = ((angle(a1, b1) - angle(a0, b0) + 540) % 360) - 180;
-      user.turn = ((user.turn - d + 540) % 360) - 180;
-      const ratio = Math.hypot(b1[0] - a1[0], b1[1] - a1[1]) / Math.hypot(b0[0] - a0[0], b0[1] - a0[1]);
-      if (Number.isFinite(ratio) && ratio > 0) user.zoom = Math.max(0.4, Math.min(3, user.zoom * ratio));
-      this.pan([(a0[0] + b0[0]) / 2, (a0[1] + b0[1]) / 2], [(a1[0] + b1[0]) / 2, (a1[1] + b1[1]) / 2]);
+    // Two fingers sliding up tip the camera toward the horizon, down toward straight down.
+    tilt(deg) { if (view) move([view.cx, view.yCar], [view.cx, view.yCar], { tilt: deg }); },
+    // A double tap, or a two-finger tap: an animated zoom about that point.
+    zoomAt(at, ratio) { coast = null; glide = { zoom: clampZoom(user.zoom * ratio), at }; },
+    // The fingers let go while moving: the map carries on and slows down.
+    fling(v, zoom, at) {
+      const speed = Math.hypot(v[0], v[1]), cap = Math.min(1, 5000 / (speed || 1));
+      const k = Math.max(-5, Math.min(5, zoom));
+      coast = speed > 60 || Math.abs(k) > 0.3 ? { v: [v[0] * cap, v[1] * cap], zoom: k, at } : null;
+    },
+    // The fingers are off: past a zoom limit, spring back inside it.
+    end() {
+      const z = clampZoom(user.zoom);
+      if (z !== user.zoom) { coast = null; glide = { zoom: z, at: focus || [view.cx, view.yCar] }; }
     },
 
     // Spring back to following the car.
-    recenter() { if (this.moved()) back = true; },
-    moved() { return Math.hypot(user.x, user.y) > 1 || Math.abs(user.turn) > 1 || Math.abs(user.zoom - 1) > 0.02; },
-    // Something on screen is changing without the car moving: a finger, or the spring back.
-    busy() { return dirty || back; },
+    recenter() { coast = null; glide = null; if (this.moved()) back = true; },
+    moved() {
+      return Math.hypot(user.x, user.y) > 1 || Math.abs(user.turn) > 1 || Math.abs(user.zoom - 1) > 0.02 ||
+        Math.abs(user.tilt) > 1 || glide != null;
+    },
+    // Something on screen is changing without the car moving: a finger, momentum, an
+    // animated zoom, or the spring back.
+    busy() { return dirty || back || glide != null || coast != null; },
 
     // Where the shoulder sign for this limit was last drawn, so the badge can take it over.
     signRect(max) { return rects.get(max) || null; },

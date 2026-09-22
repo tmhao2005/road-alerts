@@ -494,18 +494,24 @@ function hint() {
   hintTimer = setTimeout(() => { el.hidden = true; }, 1800);
 }
 
+// Every move goes to the road view only while stopped, and each one may show or hide the
+// way back.
+const look = (move) => (...args) => {
+  if (!state.canLook || !state.hud) return;
+  state.hud[move](...args);
+  $('recenter').hidden = !state.hud.moved();
+};
 attachGestures($('scene'), {
-  touch() { if (!state.canLook) hint(); },
-  pan(a, b) {
-    if (!state.canLook) return;
-    state.hud.pan(a, b);
-    $('recenter').hidden = !state.hud.moved();
+  touch() {
+    if (!state.hud) return;
+    if (state.canLook) state.hud.hold(); else hint();
   },
-  twist(a0, b0, a1, b1) {
-    if (!state.canLook) return;
-    state.hud.twist(a0, b0, a1, b1);
-    $('recenter').hidden = !state.hud.moved();
-  },
+  pan: look('pan'),
+  pinch: look('pinch'),
+  tilt: look('tilt'),
+  zoomAt: look('zoomAt'),
+  fling: look('fling'),
+  end: look('end'),
 });
 $('recenter').onclick = () => { state.hud.recenter(); $('recenter').hidden = true; };
 
