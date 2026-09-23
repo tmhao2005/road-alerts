@@ -1,0 +1,98 @@
+{
+  "provider": "google",
+  "model": "gemini-2.5-flash-preview-tts",
+  "accent": "nam",
+  "format": "m4a",
+  "default": "Kore",
+  "voices": [
+    {
+      "name": "Kore",
+      "note": "reads female, firm"
+    },
+    {
+      "name": "Leda",
+      "note": "reads female, youthful"
+    },
+    {
+      "name": "Aoede",
+      "note": "reads female, breezy"
+    },
+    {
+      "name": "Achernar",
+      "note": "reads female, soft"
+    },
+    {
+      "name": "Sulafat",
+      "note": "reads female, warm"
+    },
+    {
+      "name": "Charon",
+      "note": "reads male, informative"
+    },
+    {
+      "name": "Iapetus",
+      "note": "reads male, clear"
+    },
+    {
+      "name": "Algieba",
+      "note": "reads male, smooth"
+    }
+  ],
+  "built": "2026-09-23T11:20:45.092Z",
+  "ids": [
+    "start",
+    "start-demo",
+    "light",
+    "light-crossing",
+    "over",
+    "logged",
+    "sign-5",
+    "sign-10",
+    "sign-15",
+    "sign-20",
+    "sign-25",
+    "sign-30",
+    "sign-35",
+    "sign-40",
+    "sign-45",
+    "sign-50",
+    "sign-55",
+    "sign-60",
+    "sign-65",
+    "sign-70",
+    "sign-75",
+    "sign-80",
+    "sign-85",
+    "sign-90",
+    "sign-95",
+    "sign-100",
+    "sign-105",
+    "sign-110",
+    "sign-115",
+    "sign-120",
+    "law-5",
+    "law-10",
+    "law-15",
+    "law-20",
+    "law-25",
+    "law-30",
+    "law-35",
+    "law-40",
+    "law-45",
+    "law-50",
+    "law-55",
+    "law-60",
+    "law-65",
+    "law-70",
+    "law-75",
+    "law-80",
+    "law-85",
+    "law-90",
+    "law-95",
+    "law-100",
+    "law-105",
+    "law-110",
+    "law-115",
+    "law-120"
+  ]
+}

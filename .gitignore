@@ -11,3 +11,20 @@ data/
 
 # Built test app (includes OSM-derived tiles); CI rebuilds it on every push.
 site/
+
+# Voice clips. Every rendered voice stays on disk so a picker can be built against them,
+# but only the default one is committed: these are regenerable artifacts, and re-rendering
+# with a different accent or model would otherwise add another 6 MB to history each time.
+#   node tools/render-voice.js --provider google --accent nam
+web/voice/*/
+!web/voice/Kore/
+
+# Local secrets. Never commit.
+.env
+
+# Personal Claude Code permission grants. Machine-local, not a team decision.
+.claude/settings.local.json
+
+# Third-party app data pulled apart for reference. Never commit: 43 MB of someone
+# else's proprietary database in git history is a size problem and a provenance one.
+*.wmap

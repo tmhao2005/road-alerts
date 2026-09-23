@@ -8,6 +8,7 @@
 // the car is on, and stops at any junction where that road is not obvious.
 import { metres } from './geo.js';
 import { walkAhead } from './path.js';
+import { lightLine } from './phrases.js';
 
 const MOVING = 2; // m/s; below this the heading is noise, and a car stopped at a light needs no warning
 
@@ -46,6 +47,8 @@ export function makeLightWatcher({ cluster = 60, tooClose = 20 } = {}) {
   };
 }
 
+// The simulator prints what the app would say, so it reads the same line the app speaks
+// rather than keeping its own copy of the wording.
 export function lightPhrase(light) {
-  return light.crossing ? 'Đèn qua đường phía trước' : 'Đèn giao thông phía trước';
+  return lightLine(light.crossing).text;
 }

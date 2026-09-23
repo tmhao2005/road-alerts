@@ -2,7 +2,7 @@
 // Every decision about the number lives in the tested modules under src/; this file only
 // wires the phone to them and draws the result.
 import { tilesAround, matchLive, evaluate, makeStabiliser } from './src/live.js';
-import { reachFor, makeLightWatcher, lightPhrase } from './src/lights.js';
+import { reachFor, makeLightWatcher } from './src/lights.js';
 import { walkAhead, snapped } from './src/path.js';
 import { limitsAhead } from './src/ahead.js';
 import { makeMotion } from './src/motion.js';
@@ -12,6 +12,8 @@ import { VEHICLES } from './src/limit.js';
 import { metresPerDegree } from './src/geo.js';
 import { makeHud } from './hud.js';
 import { attachGestures } from './gestures.js';
+import { makeVoice } from './voice.js';
+import { signLine, lawLine, lightLine, FIXED } from './src/phrases.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -110,12 +112,22 @@ renderLogButton();
 
 $('go').onclick = () => start(null);
 
+// iOS will not let a page make sound before it has been tapped, so the clips cannot be
+// fetched on load. Any touch counts, and one almost always lands on the start screen well
+// before Go does - which is what keeps the opening line off the fallback voice.
+document.addEventListener('pointerdown', unlockAudio, { once: true });
+
 async function start(demo) {
   state.vehicle = $('vehicle').value;
   store.set('vehicle', state.vehicle);
   // iOS only lets a page speak or play sound after a tap, so both are unlocked here.
   unlockAudio();
-  say(demo ? 'Bắt đầu mô phỏng' : 'Bắt đầu');
+  // The opening line is the one most likely to be asked for before its clip has decoded.
+  // Waiting for it would hold up the screen, so the drive starts now and the greeting
+  // follows when it can be said properly - or in the phone's voice if the wait was for
+  // nothing.
+  Promise.race([state.voiceReady, new Promise((r) => setTimeout(r, 1500))])
+    .then(() => say(demo ? 'start-demo' : 'start'));
   await keepAwake();
   $('start').hidden = true;
   $('drive').hidden = false;
@@ -150,7 +162,7 @@ $('stop').onclick = () => {
   if (state.raf) cancelAnimationFrame(state.raf);
   state.watch = null; state.timer = null; state.raf = null;
   try { state.wake && state.wake.release(); } catch {}
-  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  if (state.voice) state.voice.cut();
   save(true);
   openSheet(false);
   $('drive').hidden = true;
@@ -566,56 +578,41 @@ function speedTick(dt) {
 
 // ---------- voice ----------
 
+// iOS only lets a page make sound after a tap, so the context is built on the first one
+// and the clips are fetched behind it.
 function unlockAudio() {
   try {
     state.audio = state.audio || new (window.AudioContext || window.webkitAudioContext)();
     state.audio.resume();
+    if (!state.voice) {
+      state.voice = makeVoice(state.audio);
+      state.voiceReady = state.voice.preload();
+    }
   } catch {}
 }
 
-function tone(freqs, dur = 0.13) {
-  const ac = state.audio;
-  if (!ac) return;
-  let t = ac.currentTime;
-  for (const f of freqs) {
-    const o = ac.createOscillator(), g = ac.createGain();
-    o.type = 'sine'; o.frequency.value = f;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.25, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(ac.destination);
-    o.start(t); o.stop(t + dur + 0.02);
-    t += dur + 0.04;
-  }
-}
-
-// queue: wait for whatever is being said instead of cutting it off. A limit change may
-// interrupt anything; a light never interrupts a limit.
-function say(text, queue = false) {
-  if (!('speechSynthesis' in window)) return;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'vi-VN';
-  const voice = speechSynthesis.getVoices().find((v) => /^vi/i.test(v.lang));
-  if (voice) u.voice = voice;
-  if (!queue) speechSynthesis.cancel();
-  speechSynthesis.speak(u);
+// Takes a rendered line, or the id of one of the fixed ones.
+function say(line, opts) {
+  if (!state.voice) return;
+  state.voice.cue(typeof line === 'string' ? FIXED.find((f) => f.id === line) : line, opts);
 }
 
 // A posted sign and a number reasoned from the law must not sound equally sure: the sign
-// gets a bright chime and a plain statement, the statute a softer tone and "theo luật".
+// gets a bright chime and a flat statement, the statute a softer tone and "theo luật" -
+// and, now the lines are recorded rather than synthesised, an unhurried delivery that
+// eases off the number instead of landing on it.
 // No number, no voice.
 function announce(r) {
   const max = r.limit.max;
   if (max == null) return;
-  if (r.limit.tier === 'bien_bao') { tone([988, 1319]); setTimeout(() => say(`Tốc độ tối đa ${max}`), 320); }
-  else { tone([660]); setTimeout(() => say(`Theo luật, ${max}`), 220); }
+  if (r.limit.tier === 'bien_bao') say(signLine(max), { chime: [988, 1319] });
+  else say(lawLine(max), { chime: [660] });
 }
 
-// Its own two-note cue, so a light is recognisable before the words start and never
-// mistaken for a limit change or a speeding warning.
+// Its own falling two-note cue, so a light is recognisable before the words start and
+// never mistaken for a limit change or a speeding warning.
 function announceLight(light) {
-  tone([740, 587], 0.11);
-  setTimeout(() => say(lightPhrase(light), true), 280);
+  say(lightLine(light.crossing), { chime: [740, 587], queue: true });
 }
 
 function checkOver(kmh) {
@@ -631,8 +628,7 @@ function checkOver(kmh) {
   // Warn once per excursion, after it has lasted a few seconds - not on every GPS blip.
   if (!state.overSince) state.overSince = Date.now();
   if (!state.overSaid && Date.now() - state.overSince > 3000) {
-    tone([880, 880]);
-    setTimeout(() => say('Quá tốc độ'), 350);
+    say('over', { chime: [880, 880] });
     state.overSaid = true;
   }
 }
@@ -695,7 +691,7 @@ $('wrong').onclick = () => {
     save(true);
     renderCount();
   }
-  say('Đã ghi nhận');
+  say('logged');
   $('wrong').animate([{ transform: 'scale(1)' }, { transform: 'scale(0.95)' }, { transform: 'scale(1)' }], { duration: 380, easing: SPRING });
 };
 
