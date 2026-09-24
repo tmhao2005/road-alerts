@@ -7,7 +7,7 @@
 import { makeView, toCamera, follow, ZOOM } from './src/view.js';
 import { metresPerDegree } from './src/geo.js';
 import { travel } from './src/oneway.js';
-import { arc, fromEnd } from './src/curve.js';
+import { placeArrows } from './src/arrows.js';
 
 // Carriageway widths in metres, a little generous so a side street still reads at a glance.
 const WIDTH = {
@@ -20,6 +20,9 @@ const RANK = {
   secondary: 4, secondary_link: 4, primary: 5, primary_link: 5, trunk: 6, trunk_link: 6, motorway: 7, motorway_link: 7,
 };
 const LANE = 3.3;
+// A one-way arrow in Google Maps' proportions: a slim shaft for the back half, a head half
+// as wide as the arrow is long for the front. [along, across] in arrow lengths, tail to tip.
+const ARROW = [[-0.5, -0.085], [0.02, -0.085], [0.02, -0.29], [0.5, 0], [0.02, 0.29], [0.02, 0.085], [-0.5, 0.085]];
 const TWO_WAY = (p) => !['yes', '1', 'true', '-1'].includes(p.oneway) && p.junction !== 'roundabout' && !/^motorway/.test(p.highway);
 
 export function roadWidth(p) {
@@ -35,7 +38,7 @@ export const THEMES = {
     sky: ['#DCE5F0', '#EAEEF3'], ground: ['#EAEEF3', '#F1F2F4'],
     casing: '#CBD0D8', road: '#FFFFFF', minorCasing: '#D9DDE3', minor: '#FAFBFC',
     ahead: 'rgba(0, 122, 255, 0.13)', aheadEdge: 'rgba(0, 122, 255, 0.55)',
-    lane: 'rgba(72, 78, 90, 0.42)', centre: '#E2A710', fog: 'rgba(234, 238, 243, ', arrow: '#8D939E',
+    lane: 'rgba(72, 78, 90, 0.42)', centre: '#E2A710', fog: 'rgba(234, 238, 243, ', arrow: '#818993',
     puck: '#007AFF', puckRim: '#FFFFFF', shadow: 'rgba(20, 30, 50, 0.22)',
     pill: 'rgba(255, 255, 255, 0.94)', pillInk: '#1C1C1E', housing: '#2C2C2E', lamp: '#E5E5EA', pole: '#8E9199',
   },
@@ -43,7 +46,7 @@ export const THEMES = {
     sky: ['#030406', '#0E1014'], ground: ['#0E1014', '#16181C'],
     casing: '#24272D', road: '#3A3D45', minorCasing: '#202227', minor: '#2C2E34',
     ahead: 'rgba(10, 132, 255, 0.20)', aheadEdge: 'rgba(64, 156, 255, 0.75)',
-    lane: 'rgba(235, 235, 245, 0.34)', centre: '#B98A0E', fog: 'rgba(14, 16, 20, ', arrow: '#A3A6AD',
+    lane: 'rgba(235, 235, 245, 0.34)', centre: '#B98A0E', fog: 'rgba(14, 16, 20, ', arrow: '#8A919C',
     puck: '#0A84FF', puckRim: '#FFFFFF', shadow: 'rgba(0, 0, 0, 0.5)',
     pill: 'rgba(44, 44, 46, 0.94)', pillInk: '#F2F2F7', housing: '#0B0B0C', lamp: '#D1D1D6', pole: '#6C6E75',
   },
@@ -333,141 +336,73 @@ export function makeHud(canvas, options = {}) {
     return drawn;
   }
 
-  // Where the arrows sit along a one-way piece: evenly spread, so they stay put on the
-  // road as the car moves. Each is [x, y, ux, uy, s]: local metres, the direction of travel
-  // there, and how far along the piece it is. cum: metres along the piece at each vertex.
-  const arrowsOf = new WeakMap();
-  function arrowSpots(piece, way, gap) {
-    const had = arrowsOf.get(piece);
-    if (had && had.gap === gap) return had;
-    const xy = xyOf(piece), n = xy.length / 2;
-    const cum = new Float64Array(n);
-    for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + Math.hypot(xy[2 * i] - xy[2 * i - 2], xy[2 * i + 1] - xy[2 * i - 1]);
-    const total = cum[n - 1], list = [];
-    if (total >= 12) {
-      const count = Math.max(1, Math.floor(total / gap));
-      for (let k = 0, i = 1; k < count; k++) {
-        const at = ((k + 0.5) * total) / count;
-        while (i < n - 1 && cum[i] < at) i++;
-        const len = cum[i] - cum[i - 1];
-        if (!len) continue;
-        const f = (at - cum[i - 1]) / len;
-        const dx = (xy[2 * i] - xy[2 * i - 2]) / len, dy = (xy[2 * i + 1] - xy[2 * i - 1]) / len;
-        list.push([xy[2 * i - 2] + dx * len * f, xy[2 * i - 1] + dy * len * f, dx * way, dy * way, at]);
-      }
-    }
-    const spots = { gap, list, cum };
-    arrowsOf.set(piece, spots);
-    return spots;
-  }
-
-  // The road's own line on screen from `s` metres along a piece, heading `dir` through its
-  // vertices, until `want` px of screen length or the piece ends: an arrow that follows
-  // the road bends with it, round a roundabout most of all.
-  function trace(cam, piece, cum, s, dir, want) {
-    const xy = xyOf(piece), n = cum.length;
-    const at = (x, y) => {
-      const [cx, cz] = toCamera(cam, x, y);
-      return cz < view.near + 2 ? null : view.project(cx, cz);
-    };
-    let i = 0;
-    while (i < n - 1 && cum[i + 1] <= s) i++;
-    const f = cum[i + 1] > cum[i] ? (s - cum[i]) / (cum[i + 1] - cum[i]) : 0;
-    const start = at(xy[2 * i] + (xy[2 * i + 2] - xy[2 * i]) * f, xy[2 * i + 1] + (xy[2 * i + 3] - xy[2 * i + 1]) * f);
-    if (!start) return { pts: [], got: 0 };
-    const pts = [start];
-    let got = 0;
-    for (let k = dir > 0 ? i + 1 : i; k >= 0 && k < n && got < want; k += dir) {
-      const q = at(xy[2 * k], xy[2 * k + 1]);
-      if (!q) break;
-      const last = pts[pts.length - 1], step = Math.hypot(q[0] - last[0], q[1] - last[1]);
-      if (!step) continue;
-      if (got + step >= want) {
-        const g = (want - got) / step;
-        pts.push([last[0] + (q[0] - last[0]) * g, last[1] + (q[1] - last[1]) * g]);
-        got = want;
-      } else {
-        pts.push(q);
-        got += step;
-      }
-    }
-    return { pts, got };
-  }
-
   // Arrows along one-way streets, as in the map apps, pointing the way this vehicle may
-  // go. Grey: blue is the road ahead and red is over the limit. Each is drawn on screen
-  // along the road's own line, upright however the road runs away from the camera and
-  // bending where it bends. They are placed the way map labels are: main roads first, and
-  // an arrow that would crowd one already placed going the same way is left out, so a big
-  // road mapped as parallel carriageways, or cut into short pieces at every junction,
-  // still reads as one arrow at a time. Opposite arrows may sit side by side: that is a
-  // divided road.
-  function drawArrows(cam, drawn, car) {
-    // About 200 px apart on screen, at least 70 m, in doubling steps so they do not slide
-    // along the road during a pinch.
-    const gap = 70 * Math.pow(2, Math.max(0, Math.round(Math.log2(200 / view.px / 70))));
-    const turn = { x: 0, y: 0, bearing: cam.bearing };
-    const carAt = view.project(car[0], car[1]);
-    const placed = [], shafts = [], heads = [];
-    for (let i = drawn.length - 1; i >= 0; i--) {
-      const piece = drawn[i].piece;
-      const way = travel(piece, bike);
-      if (!way) continue;
-      const width = roadWidth(piece);
-      const { list, cum } = arrowSpots(piece, way, gap);
-      for (const [x, y, ux, uy, s] of list) {
-        const [ax, az] = toCamera(cam, x, y);
-        if (az < view.near + 2 || az > FAR) continue;
-        const [sx, sy] = view.project(ax, az);
-        if (sx < -40 || sx > W + 40 || sy < -40 || sy > H + 40) continue;
-        if (Math.hypot(sx - carAt[0], sy - carAt[1]) < 50) continue;
-        // How thick the road looks across its own direction here: a road crossing the
-        // view in perspective is much thinner than one running away.
-        const [ex, ez] = toCamera(turn, ux, uy);
-        const [tx, ty] = view.project(ax + ex, az + ez);
-        const dl = Math.hypot(tx - sx, ty - sy);
-        if (!dl) continue;
-        const dx = (tx - sx) / dl, dy = (ty - sy) / dl;
-        const [kx, ky] = view.project(ax + (ez * width) / 2, az - (ex * width) / 2);
-        const across = 2 * Math.abs((kx - sx) * -dy + (ky - sy) * dx);
-        if (across < 10) continue;
-        // Short and slim, except round a roundabout, where a longer arrow shows the bend.
-        const ring = piece.junction === 'roundabout';
-        const len = ring ? Math.min(40, Math.max(22, 1.9 * across)) : Math.min(26, Math.max(16, 1.3 * across));
-        const half = Math.min(5, 0.3 * across);
-        const crowded = placed.some((q) => {
-          const ox = sx - q.x, oy = sy - q.y;
-          if (q.dx * dx + q.dy * dy > 0.7 && Math.hypot(ox, oy) < 100) return true;
-          const along = Math.abs(ox * q.dx + oy * q.dy), side = Math.abs(oy * q.dx - ox * q.dy);
-          return along < (len + q.len) / 2 && side < half + q.half + 3;
-        });
-        if (crowded) continue;
-        // Half the length each way along the road, the rest taken from the other side
-        // where the piece ends first; too short a piece gets no arrow.
-        let ahead = trace(cam, piece, cum, s, way, len / 2);
-        const behind = trace(cam, piece, cum, s, -way, len - ahead.got);
-        if (behind.got < len - ahead.got) ahead = trace(cam, piece, cum, s, way, len - behind.got);
-        if (ahead.got + behind.got < 0.75 * len || ahead.pts.length < 2) continue;
-        placed.push({ x: sx, y: sy, dx, dy, len, half });
-        const { pts, dir } = arc(behind.pts.slice(1).reverse().concat(ahead.pts));
-        // The head lies along the curve's own direction at the tip, and the shaft runs into
-        // it, so the two join without a corner.
-        const head = half * 2, tip = pts[pts.length - 1], neck = fromEnd(pts, head * 0.7);
-        const bx = tip[0] - dir[0] * head, by = tip[1] - dir[1] * head;
-        heads.push([tip, [bx - dir[1] * half, by + dir[0] * half], neck.at, [bx + dir[1] * half, by - dir[0] * half]]);
-        shafts.push(pts.slice(0, neck.index).concat([neck.at]));
+  // go. Grey: blue is the road ahead and red is over the limit. Painted flat on the road,
+  // so they stay where they are while the car drives over them, and shrink into the
+  // distance with the road. They are laid out over the whole loaded map at once (see
+  // arrows.js), again only when the tiles or the spacing change; an arrow that comes or
+  // goes with a new layout fades rather than blinks.
+  const layouts = new Map();   // gap -> arrows, for the pieces now loaded
+  const shown = new Map();     // arrow key -> { a: the arrow, on: in the layout, alpha }
+  let laidOut = null, fading = false;
+
+  function layout(gap) {
+    let list = layouts.get(gap);
+    if (!list) {
+      const roads = [];
+      for (const piece of pool) {
+        const way = travel(piece, bike);
+        if (way) roads.push({ xy: xyOf(piece), way, rank: RANK[piece.highway] ?? 1, id: piece.id, piece });
       }
+      layouts.set(gap, (list = placeArrows(roads, gap)));
     }
-    ctx.strokeStyle = ctx.fillStyle = theme.arrow;
-    ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.beginPath();
-    for (const line of shafts) line.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
-    ctx.stroke();
-    ctx.beginPath();
-    for (const pts of heads) { pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); }
-    ctx.fill();
+    return list;
   }
 
+  function drawArrows(cam, drawn, dt) {
+    // About 200 px apart on screen, at least 70 m, in doubling steps so they do not all
+    // move during a pinch.
+    const gap = 70 * Math.pow(2, Math.max(0, Math.round(Math.log2(200 / view.px / 70))));
+    const list = layout(gap);
+    if (list !== laidOut) {
+      for (const e of shown.values()) e.on = false;
+      for (const a of list) {
+        const e = shown.get(a.key);
+        if (e) { e.a = a; e.on = true; } else shown.set(a.key, { a, on: true, alpha: 0 });
+      }
+      laidOut = list;
+    }
+    // Only on roads drawn this frame: a side street is left out far away, and an arrow
+    // must not lie on bare ground where it was.
+    const roads = new Set(drawn.map((d) => d.piece));
+    const k = 1 - Math.exp(-dt / 0.12);
+    fading = false;
+    ctx.fillStyle = theme.arrow;
+    for (const [key, e] of shown) {
+      e.alpha += ((e.on ? 1 : 0) - e.alpha) * k;
+      if (!e.on && e.alpha < 0.01) { shown.delete(key); continue; }
+      if (!e.on || e.alpha < 0.99) fading = true;
+      const { road: { piece }, x, y, ux, uy } = e.a;
+      if (!roads.has(piece)) continue;
+      const [ax, az] = toCamera(cam, x, y);
+      if (az < view.near + 8 || az > FAR) continue;
+      const [sx, sy] = view.project(ax, az);
+      if (sx < -40 || sx > W + 40 || sy < -40 || sy > H + 40) continue;
+      // About half as long as the road is wide, up to a car's length.
+      const rank = RANK[piece.highway] ?? 1;
+      const len = Math.min(4.5, 0.9 * Math.max(roadWidth(piece) / 2, minHalf(rank)));
+      const pts = ARROW.map(([t, w]) => view.project(...toCamera(cam, x + (ux * t + uy * w) * len, y + (uy * t - ux * w) * len)));
+      // Far away it thins out rather than vanishing at a line.
+      const size = Math.sqrt(Math.hypot(pts[3][0] - (pts[0][0] + pts[6][0]) / 2, pts[3][1] - (pts[0][1] + pts[6][1]) / 2) *
+        Math.hypot(pts[2][0] - pts[4][0], pts[2][1] - pts[4][1]));
+      const alpha = e.alpha * Math.max(0, Math.min(1, (size - 5) / 6));
+      if (alpha < 0.02) continue;
+      ctx.globalAlpha = alpha;
+      path(pts);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
 
   // The road ahead, tinted, fading out where the walk stopped at a junction it could not
   // see through: past there the app does not know which way the car will go.
@@ -723,6 +658,9 @@ export function makeHud(canvas, options = {}) {
     setScene({ pieces, at, walk = null, piece, lights = [], limits = [] }, now) {
       if (!origin && at) { origin = at; m = metresPerDegree(origin[1]); }
       if (!origin) return;
+      // A fresh list at every fix, but the pieces in it only change when a tile arrives or
+      // the car moves on into another: only then are the arrows laid out again.
+      if (pieces.length !== pool.length || pieces[0] !== pool[0] || pieces[pieces.length - 1] !== pool[pool.length - 1]) layouts.clear();
       pool = pieces; poolAt = at;
       scene = { pieces: [], walk, piece };
       gather(1100, 550);
@@ -783,7 +721,7 @@ export function makeHud(canvas, options = {}) {
       const cam = moved ? handCam() : carCam;
       if (moved && poolAt) widen();
       const car = toCamera(cam, carX, carY);
-      drawArrows(cam, drawRoads(cam), car);
+      drawArrows(cam, drawRoads(cam), dt);
       if (oriented) { drawAhead(cam); drawLanes(cam); }
       drawFog();
       if (oriented) { drawCar(car, -user.turn); drawBoards(cam, carCam, now); } else drawDot(car);
@@ -826,8 +764,8 @@ export function makeHud(canvas, options = {}) {
         Math.abs(user.tilt) > 1 || glide != null;
     },
     // Something on screen is changing without the car moving: a finger, momentum, an
-    // animated zoom, or the spring back.
-    busy() { return dirty || back || glide != null || coast != null; },
+    // animated zoom, the spring back, or arrows fading.
+    busy() { return dirty || back || glide != null || coast != null || fading; },
 
     // Where the shoulder sign for this limit was last drawn, so the badge can take it over.
     signRect(max) { return rects.get(max) || null; },

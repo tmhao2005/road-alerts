@@ -362,9 +362,10 @@ The road view is built into the test app from the phone's own map tiles:
   matches the windscreen.
 - **Until the phone first moves it has no direction**, so the map is north-up around a
   location dot, with nothing picked out ahead.
-- **One-way streets carry grey arrows**, as in the map apps, wherever the road is wide
-  enough on screen to hold one. They point the way *the chosen vehicle* may go: ~190
-  streets in central TP.HCM (Phạm Ngũ Lão, Lê Lai, Cách Mạng Tháng Tám…) are one-way for
+- **One-way streets carry grey arrows** painted on the road, as in the map apps: laid out
+  once from the map, so they stay put as the car drives over them, and fading out where
+  the road gets too thin on screen to hold one. They point the way *the chosen vehicle*
+  may go: ~190 streets in central TP.HCM (Phạm Ngũ Lão, Lê Lai, Cách Mạng Tháng Tám…) are one-way for
   cars but two-way for xe máy (`oneway:motorcycle=no`), and road matching and the walk
   ahead follow the same rule, so a rider going legally against the cars is neither
   matched to a side street nor cut off from the road ahead.
