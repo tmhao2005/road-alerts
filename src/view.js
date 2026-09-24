@@ -7,11 +7,12 @@
 // compressed, but the order of things along the road never changes, and nothing ever
 // reaches the horizon.
 //
-// Looking around while stopped, the same camera moves the way a map app's does. Zooming out
-// lifts it and tips it toward straight down, so the streets around the car spread out
-// instead of piling up at the horizon; zooming back in brings it down to the driver's
-// angle. The fold fades as the camera tips over: seen from above there is no far distance
-// left to squeeze, and a squeezed street grid would just look bent.
+// Looking around while stopped, the same camera swings up from the driver's seat to
+// straight overhead (`lift`), so the streets are looked at the way a map is, from the sky,
+// rather than from the side where they pile up at the horizon. From there zooming is
+// zooming, as in any map: it no longer tips the camera. The fold fades as the camera tips
+// over: seen from above there is no far distance left to squeeze, and a squeezed street
+// grid would just look bent.
 //
 // Pure: no imports, so it runs under `node --test` and in the browser.
 
@@ -20,18 +21,9 @@ const RAD = Math.PI / 180;
 // How far a hand can zoom: from the whole neighbourhood the loaded map tiles cover, down to
 // a few car lengths.
 export const ZOOM = { min: 0.065, max: 3 };
-const FLAT = 0.12;      // zoomed out this far, the camera looks straight down
 const MAX_PITCH = 72;   // tipped up this far, the horizon is mid-screen
 
 const smooth = (t) => { const u = Math.max(0, Math.min(1, t)); return u * u * (3 - 2 * u); };
-
-// The camera's tilt from straight down, in degrees, for a zoom, before any tilt by hand.
-// Flat at both ends, so the driving view does not wobble as a pinch starts, and the map
-// settles into straight down rather than bumping into it.
-export function pitchFor(zoom, drive) {
-  if (zoom >= 1) return drive;
-  return drive * smooth(Math.log(zoom / FLAT) / Math.log(1 / FLAT));
-}
 
 // Camera space: x metres to the right of the car, z metres ahead of it.
 // cam: { x, y, bearing } in local metres (x east, y north), bearing in compass degrees.
@@ -56,15 +48,16 @@ export function fromCamera(cam, x, z) {
 // fold: metres ahead beyond which distance is compressed.
 // scale: pixels per metre across the road at the car, for a 390 px wide screen.
 // zoom: 1 is the driving view; below 1 the camera rises, above it comes closer.
-// tilt: degrees tipped by hand on top of what the zoom gives.
-export function makeView({ width, height, carX = 0.5, carY = 0.64, horizonY = 0.17, depth = 90, fold = 220, scale = 7, zoom = 1, tilt = 0 }) {
+// lift: how far the camera has swung up from the driver's angle, 0, to straight down, 1.
+// tilt: degrees tipped by hand on top of that.
+export function makeView({ width, height, carX = 0.5, carY = 0.64, horizonY = 0.17, depth = 90, fold = 220, scale = 7, zoom = 1, tilt = 0, lift = 0 }) {
   const cx = width * carX;
   const yCar = height * carY;
   const px0 = scale * (Math.min(width, height) / 390);
   // The driving camera, recovered from where the car and the horizon sit on screen.
   const drive = Math.acos(Math.min(0.999, (yCar - height * horizonY) / (px0 * depth))) / RAD;
   const focal = px0 * depth * Math.sin(drive * RAD);
-  const auto = pitchFor(zoom, drive);
+  const auto = drive * (1 - lift);
   const pitch = Math.max(0, Math.min(Math.max(drive, MAX_PITCH), auto + tilt));
   const s = Math.sin(pitch * RAD), c = Math.cos(pitch * RAD);
   const px = px0 * zoom;
@@ -107,14 +100,18 @@ export function makeView({ width, height, carX = 0.5, carY = 0.64, horizonY = 0.
 
 // A gesture moves the camera the way a map app does: whatever ground was under the fingers
 // stays under them while the view zooms, turns and tilts about them.
-// viewFor(zoom, tilt) makes the view for a camera; cam: { x, y, bearing, zoom, tilt }, x
+// viewFor(cam) makes the view for a camera; cam: { x, y, bearing, zoom, tilt, lift }, x
 // and y being the ground point the camera looks at. a, b: the fingers' centre before and
-// after, in screen px. change: zoom as a ratio, turn and tilt in degrees.
-export function follow(viewFor, cam, a, b, { zoom = 1, turn = 0, tilt = 0 } = {}) {
-  const v0 = viewFor(cam.zoom, cam.tilt);
+// after, in screen px. change: zoom as a ratio, turn and tilt in degrees, lift as a share
+// of the swing overhead.
+export function follow(viewFor, cam, a, b, { zoom = 1, turn = 0, tilt = 0, lift = 0 } = {}) {
+  const v0 = viewFor(cam);
   const g = fromCamera(cam, ...v0.unproject(a[0], a[1]));
-  const next = { ...cam, zoom: cam.zoom * zoom, bearing: (((cam.bearing + turn) % 360) + 360) % 360, tilt: cam.tilt + tilt };
-  const v1 = viewFor(next.zoom, next.tilt);
+  const next = {
+    ...cam, zoom: cam.zoom * zoom, bearing: (((cam.bearing + turn) % 360) + 360) % 360, tilt: cam.tilt + tilt,
+    lift: Math.max(0, Math.min(1, (cam.lift ?? 0) + lift)),
+  };
+  const v1 = viewFor(next);
   // Tipped past straight down or the limit, the hand's tilt is kept at what was used.
   next.tilt = v1.pitch - v1.auto;
   const h = fromCamera(next, ...v1.unproject(b[0], b[1]));

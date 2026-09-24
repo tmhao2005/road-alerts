@@ -67,9 +67,11 @@ export function makeHud(canvas, options = {}) {
   let carShift = 0;            // metres right of the centre line, eased
   let viewBearing = null;      // the camera's heading; north-up until the car's is known
   // Where the user has moved the view while stopped: metres east/north of the car, degrees
-  // turned, zoom, and degrees tipped by hand. This at rest means the view follows the car.
-  const user = { x: 0, y: 0, turn: 0, zoom: 1, tilt: 0 };
+  // turned, zoom, degrees tipped by hand, and how far the camera has swung up overhead.
+  // This at rest means the view follows the car.
+  const user = { x: 0, y: 0, turn: 0, zoom: 1, tilt: 0, lift: 0 };
   let back = false;            // springing back to the car
+  let rising = false;          // swinging up overhead as the hand takes the map
   let dirty = false;           // moved by a finger since the last frame
   let glide = null;            // an animated zoom: { zoom, at } to reach, about a screen point
   let coast = null;            // momentum after the fingers let go: { v: px/s, zoom: log/s, at }
@@ -77,6 +79,10 @@ export function makeHud(canvas, options = {}) {
   let focus = null;            // where the fingers last were, to spring back about
   let carCam = null;           // the car's own camera at the last frame: where it follows
   const baseScale = (options.view && options.view.scale) || 7;
+  // Overhead, the camera also stands higher: at the driving zoom a plan shows only the
+  // few car lengths around the car, so it climbs to where a few blocks each way are on
+  // screen, about Google Maps' street level.
+  const PLAN = 0.3;
   const bike = !!options.bike;  // a xe máy: some one-way streets are two-way for it
   // The 3x3 tiles around the car reach at least 2.2 km from it; the view is kept inside.
   const REACH = 1000;
@@ -89,16 +95,16 @@ export function makeHud(canvas, options = {}) {
 
   // Landscape on a dashboard mount: the numbers take the right-hand column, so the road is
   // centred in what is left.
-  const viewFor = (zoom, tilt) => makeView({
+  const viewFor = ({ zoom, tilt, lift }) => makeView({
     width: W, height: H, ...(W > H * 1.2 ? { carX: 0.3, carY: 0.7, horizonY: 0.12 } : {}),
-    ...options.view, scale: baseScale, zoom, tilt,
+    ...options.view, scale: baseScale, zoom, tilt, lift,
   });
 
   function resize() {
     dpr = Math.min(2, window.devicePixelRatio || 1);
     [W, H] = box();
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-    view = viewFor(user.zoom, user.tilt);
+    view = viewFor(user);
   }
 
   // A city-centre block of tiles holds ~20,000 pieces; only the ones within reach of the
@@ -134,18 +140,22 @@ export function makeHud(canvas, options = {}) {
 
   // The hand's camera: where it looks, which way, how far out and how tipped.
   function handCam() {
-    return { x: carCam.x + user.x, y: carCam.y + user.y, bearing: (carCam.bearing + user.turn + 360) % 360, zoom: user.zoom, tilt: user.tilt };
+    return { x: carCam.x + user.x, y: carCam.y + user.y, bearing: (carCam.bearing + user.turn + 360) % 360, zoom: user.zoom, tilt: user.tilt, lift: user.lift };
   }
   function setHand(c) {
     user.x = c.x - carCam.x; user.y = c.y - carCam.y;
     user.turn = ((c.bearing - carCam.bearing + 540) % 360) - 180;
-    user.zoom = c.zoom; user.tilt = c.tilt;
+    user.zoom = c.zoom; user.tilt = c.tilt; user.lift = c.lift;
     const far = Math.hypot(user.x, user.y);
     if (far > REACH) { user.x *= REACH / far; user.y *= REACH / far; }
-    view = viewFor(user.zoom, user.tilt);
+    view = viewFor(user);
     back = false; dirty = true;
   }
   const move = (a, b, change) => { if (carCam && W) setHand(follow(viewFor, handCam(), a, b, change)); };
+
+  // The hand's first move swings the camera up from the driver's seat to overhead: a map
+  // being looked at is looked at from the sky, not from the side.
+  function lookDown() { if (carCam && user.lift < 1) { rising = true; back = false; } }
 
   // Past the zoom limits the map gives a little, with growing resistance, and springs back
   // when let go.
@@ -158,6 +168,7 @@ export function makeHud(canvas, options = {}) {
 
   function pan(a, b) {
     if (!carCam || !W) return;
+    lookDown();
     const cur = handCam(), next = follow(viewFor, cur, a, b);
     // A drag near the horizon is not a 2 km jump.
     const dx = next.x - cur.x, dy = next.y - cur.y, len = Math.hypot(dx, dy);
@@ -168,6 +179,17 @@ export function makeHud(canvas, options = {}) {
 
   // Momentum and animated zooms, a frame at a time.
   function animate(dt) {
+    if (rising) {
+      const left = 1 - user.lift;
+      const step = left < 0.004 ? left : left * (1 - Math.exp(-dt / 0.1));
+      // It climbs as it swings, about the point it looks at, and whatever zoom the fingers
+      // or a double tap are heading for is carried up with it.
+      const r = Math.pow(PLAN, step);
+      move([view.cx, view.yCar], [view.cx, view.yCar], { lift: step, zoom: r });
+      raw *= r;
+      if (glide) glide.zoom = clampZoom(glide.zoom * r);
+      if (step === left) { user.lift = 1; rising = false; }
+    }
     if (glide) {
       const left = Math.log(glide.zoom / user.zoom);
       const step = Math.abs(left) < 0.004 ? left : left * (1 - Math.exp(-dt / 0.08));
@@ -536,10 +558,11 @@ export function makeHud(canvas, options = {}) {
   function settle(dt) {
     const k = 1 - Math.exp(-dt / 0.14);
     user.x -= user.x * k; user.y -= user.y * k; user.turn -= user.turn * k; user.tilt -= user.tilt * k;
+    user.lift -= user.lift * k;
     user.zoom = Math.exp(Math.log(user.zoom) * (1 - k));
     raw = user.zoom;
-    if (Math.hypot(user.x, user.y) < 0.3 && Math.abs(user.turn) < 0.3 && Math.abs(user.zoom - 1) < 0.004 && Math.abs(user.tilt) < 0.3) {
-      user.x = 0; user.y = 0; user.turn = 0; user.zoom = 1; user.tilt = 0; back = false;
+    if (Math.hypot(user.x, user.y) < 0.3 && Math.abs(user.turn) < 0.3 && Math.abs(user.zoom - 1) < 0.004 && Math.abs(user.tilt) < 0.3 && user.lift < 0.004) {
+      user.x = 0; user.y = 0; user.turn = 0; user.zoom = 1; user.tilt = 0; user.lift = 0; back = false;
     }
   }
 
@@ -697,7 +720,7 @@ export function makeHud(canvas, options = {}) {
       if (!view || bw !== W || bh !== H) resize();
       const step = Math.min(dt, 0.05);
       if (back) settle(step); else animate(step);
-      view = viewFor(user.zoom, user.tilt);
+      view = viewFor(user);
       dirty = false;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawGround();
@@ -737,14 +760,15 @@ export function makeHud(canvas, options = {}) {
     // the map by turn degrees.
     pinch(a, b, ratio, turn = 0) {
       if (!(ratio > 0) || !Number.isFinite(ratio)) return;
+      lookDown();
       raw *= ratio;
       move(a, b, { zoom: soft(raw) / user.zoom, turn });
       focus = b;
     },
     // Two fingers sliding up tip the camera toward the horizon, down toward straight down.
-    tilt(deg) { if (view) move([view.cx, view.yCar], [view.cx, view.yCar], { tilt: deg }); },
+    tilt(deg) { if (view) { lookDown(); move([view.cx, view.yCar], [view.cx, view.yCar], { tilt: deg }); } },
     // A double tap, or a two-finger tap: an animated zoom about that point.
-    zoomAt(at, ratio) { coast = null; glide = { zoom: clampZoom(user.zoom * ratio), at }; },
+    zoomAt(at, ratio) { lookDown(); coast = null; glide = { zoom: clampZoom(user.zoom * ratio), at }; },
     // The fingers let go while moving: the map carries on and slows down.
     fling(v, zoom, at) {
       const speed = Math.hypot(v[0], v[1]), cap = Math.min(1, 5000 / (speed || 1));
@@ -758,14 +782,14 @@ export function makeHud(canvas, options = {}) {
     },
 
     // Spring back to following the car.
-    recenter() { coast = null; glide = null; if (this.moved()) back = true; },
+    recenter() { coast = null; glide = null; rising = false; if (this.moved()) back = true; },
     moved() {
       return Math.hypot(user.x, user.y) > 1 || Math.abs(user.turn) > 1 || Math.abs(user.zoom - 1) > 0.02 ||
-        Math.abs(user.tilt) > 1 || glide != null;
+        Math.abs(user.tilt) > 1 || user.lift > 0.004 || glide != null || rising;
     },
     // Something on screen is changing without the car moving: a finger, momentum, an
-    // animated zoom, the spring back, or arrows fading.
-    busy() { return dirty || back || glide != null || coast != null || fading; },
+    // animated zoom, the swing overhead, the spring back, or arrows fading.
+    busy() { return dirty || back || rising || glide != null || coast != null || fading; },
 
     // Where the shoulder sign for this limit was last drawn, so the badge can take it over.
     signRect(max) { return rects.get(max) || null; },

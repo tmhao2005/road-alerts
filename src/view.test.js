@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeView, toCamera, fromCamera, follow, pitchFor, ZOOM } from './view.js';
+import { makeView, toCamera, fromCamera, follow, ZOOM } from './view.js';
 
 const view = makeView({ width: 390, height: 700 });
 
@@ -67,45 +67,48 @@ test('the driving view is exactly the folded perspective it always was', () => {
   }
 });
 
-test('zooming out lifts the camera and tips it toward straight down', () => {
-  const drive = view.drive;
-  assert.equal(pitchFor(1, drive), drive);
-  assert.equal(pitchFor(2.5, drive), drive);
-  let last = drive;
-  for (const zoom of [0.9, 0.7, 0.5, 0.3, 0.2, 0.15]) {
-    const p = makeView({ width: 390, height: 700, zoom }).pitch;
-    assert.ok(p < last, `zoom ${zoom}: ${p.toFixed(1)}`);
+test('lifting swings the camera from the driving angle to straight down', () => {
+  let last = view.drive;
+  for (const lift of [0.2, 0.4, 0.6, 0.8]) {
+    const p = makeView({ width: 390, height: 700, lift }).pitch;
+    assert.ok(p < last, `lift ${lift}: ${p.toFixed(1)}`);
     last = p;
   }
-  assert.equal(makeView({ width: 390, height: 700, zoom: ZOOM.min }).pitch, 0);
+  assert.equal(makeView({ width: 390, height: 700, lift: 1 }).pitch, 0);
 });
 
-test('zoomed out, the screen is all street: the sky is gone and the view reaches further', () => {
+test('zooming is only zooming: it never tips the camera', () => {
+  for (const lift of [0, 1]) {
+    const at = (zoom) => makeView({ width: 390, height: 700, zoom, lift }).pitch;
+    for (const zoom of [ZOOM.min, 0.3, 0.7, 2, ZOOM.max]) assert.equal(at(zoom), at(1), `lift ${lift}, zoom ${zoom}`);
+  }
+});
+
+test('from overhead, the screen is all street: the sky is gone and the view reaches further', () => {
   assert.ok(view.yHor > 0 && view.far === Infinity);
-  const out = makeView({ width: 390, height: 700, zoom: 0.4 });
-  assert.ok(out.yHor < 0, `horizon at ${out.yHor.toFixed(0)}`);
-  assert.ok(out.far > 300 && Number.isFinite(out.far), `${out.far.toFixed(0)} m`);
-  // And a side street 100 m away comes on screen, where the driving view has it off the edge.
-  const wide = makeView({ width: 390, height: 700, zoom: 0.2 });
-  assert.ok(view.project(100, 0)[0] > 390);
-  assert.ok(wide.project(100, 0)[0] < 390);
+  const out = makeView({ width: 390, height: 700, zoom: 0.3, lift: 1 });
+  assert.ok(out.yHor < 0, `horizon at ${out.yHor}`);
+  assert.ok(out.far > 150 && Number.isFinite(out.far), `${out.far.toFixed(0)} m`);
+  // And a side street 80 m away comes on screen, where the driving view has it off the edge.
+  assert.ok(view.project(80, 0)[0] > 390);
+  assert.ok(out.project(80, 0)[0] < 390);
 });
 
 test('from straight above, the map is a plan: a square block is drawn square', () => {
-  const top = makeView({ width: 390, height: 700, zoom: ZOOM.min });
+  const top = makeView({ width: 390, height: 700, zoom: ZOOM.min, lift: 1 });
   const [l, b] = top.project(-200, -200), [r, t] = top.project(200, 200);
   assert.ok(Math.abs((r - l) - (b - t)) < 1e-6);
   assert.ok(Math.abs(top.project(0, 800)[2] - 1) < 1e-12, 'nothing shrinks with distance');
 });
 
-test('unproject finds the ground under a finger at every zoom and tilt', () => {
-  for (const [zoom, tilt] of [[1, 0], [0.5, 0], [0.2, 10], [ZOOM.min, 0], [ZOOM.min, 30], [2, -15], [1, 20]]) {
-    const v = makeView({ width: 390, height: 700, zoom, tilt });
+test('unproject finds the ground under a finger at every zoom, tilt and lift', () => {
+  for (const [zoom, tilt, lift] of [[1, 0, 0], [0.5, 0, 0.5], [0.2, 10, 1], [ZOOM.min, 0, 1], [ZOOM.min, 30, 1], [2, -15, 0], [1, 20, 0], [0.3, 0, 1]]) {
+    const v = makeView({ width: 390, height: 700, zoom, tilt, lift });
     for (const [x, z] of [[0, 0], [30, 90], [-60, 250], [10, -40]]) {
       const [sx, sy] = v.project(x, z);
       if (sy < 0 || sy > 700) continue;
       const [x2, z2] = v.unproject(sx, sy);
-      assert.ok(Math.abs(x2 - x) < 0.01 && Math.abs(z2 - z) < 0.01, `zoom ${zoom} tilt ${tilt}: ${x},${z} -> ${x2.toFixed(3)},${z2.toFixed(3)}`);
+      assert.ok(Math.abs(x2 - x) < 0.01 && Math.abs(z2 - z) < 0.01, `zoom ${zoom} tilt ${tilt} lift ${lift}: ${x},${z} -> ${x2.toFixed(3)},${z2.toFixed(3)}`);
     }
   }
 });
@@ -122,22 +125,30 @@ test('fromCamera undoes toCamera', () => {
   assert.ok(Math.abs(px - 55) < 1e-9 && Math.abs(py - 20) < 1e-9);
 });
 
-test('a pinch keeps the ground under the fingers while it zooms and turns', () => {
-  const viewFor = (zoom, tilt) => makeView({ width: 390, height: 700, zoom, tilt });
+const viewFor = ({ zoom, tilt, lift }) => makeView({ width: 390, height: 700, zoom, tilt, lift });
+
+test('a pinch keeps the ground under the fingers while it zooms, turns and swings overhead', () => {
   const cam = { x: 0, y: 0, bearing: 30, zoom: 1, tilt: 0 };
   const a = [140, 380], b = [220, 430];
-  const v0 = viewFor(cam.zoom, cam.tilt);
-  const ground = fromCamera(cam, ...v0.unproject(...a));
-  for (const change of [{ zoom: 0.5 }, { zoom: 0.25, turn: 40 }, { zoom: 1.8, turn: -15 }, { tilt: 12 }]) {
+  const ground = fromCamera(cam, ...viewFor(cam).unproject(...a));
+  for (const change of [{ zoom: 0.5 }, { zoom: 0.25, turn: 40 }, { zoom: 1.8, turn: -15 }, { tilt: 12 }, { lift: 0.4, zoom: 0.6 }, { lift: 1, zoom: 0.3 }]) {
     const next = follow(viewFor, cam, a, b, change);
-    const [sx, sy] = viewFor(next.zoom, next.tilt).project(...toCamera(next, ...ground));
+    const [sx, sy] = viewFor(next).project(...toCamera(next, ...ground));
     assert.ok(Math.hypot(sx - b[0], sy - b[1]) < 0.01, `${JSON.stringify(change)}: ${sx.toFixed(2)},${sy.toFixed(2)}`);
   }
 });
 
 test('a tilt past the limit is not banked for later', () => {
-  const viewFor = (zoom, tilt) => makeView({ width: 390, height: 700, zoom, tilt });
   const next = follow(viewFor, { x: 0, y: 0, bearing: 0, zoom: 1, tilt: 0 }, [195, 448], [195, 448], { tilt: 300 });
-  assert.equal(viewFor(1, next.tilt).pitch, 72);
+  assert.equal(viewFor(next).pitch, 72);
   assert.ok(next.tilt < 30);
+  // Nor is a tilt past straight down, once overhead: tipping back up starts at once.
+  const top = follow(viewFor, { x: 0, y: 0, bearing: 0, zoom: 0.3, tilt: 0, lift: 1 }, [195, 448], [195, 448], { tilt: -40 });
+  assert.equal(top.tilt, 0);
+});
+
+test('the swing overhead stops at overhead and at the driving angle', () => {
+  const cam = { x: 0, y: 0, bearing: 0, zoom: 1, tilt: 0, lift: 0.7 };
+  assert.equal(follow(viewFor, cam, [195, 448], [195, 448], { lift: 0.9 }).lift, 1);
+  assert.equal(follow(viewFor, cam, [195, 448], [195, 448], { lift: -2 }).lift, 0);
 });
