@@ -127,6 +127,8 @@ const state = {
   holdAuto: false,   // Dừng while moving: do not start driving again until the car stops
   audio: null,
   pill: false,
+  greetPending: false, // the drive has begun, the voice waits for the car to move
+  travelled: 0,        // metres since then, for a car crawling out slower than 2 m/s
   demo: null,
   hud: null,
   motion: makeMotion(),
@@ -196,6 +198,8 @@ $('installX').onclick = () => { store.set('installSeen', true); syncInstall(); }
 function tapTile(i) {
   if (state.mode !== 'home') return;
   unlockAudio();
+  // Heard, with nothing said yet: below every other cue, so it is never taken for one.
+  if (state.voice) state.voice.tone([523], 0.12);
   keepAwake();
   const v = SLOTS[i];
   if (v !== state.vehicle) { state.vehicle = v; store.set('vehicle', v); renderTiles(); }
@@ -303,6 +307,7 @@ function toDrive({ auto = false } = {}) {
   Object.assign(state, {
     stab: makeStabiliser(), lights: makeLightWatcher(), judged: new WeakMap(), shown: null, stillScene: false,
     hudLimit: null, lastRect: null, speedShown: 0, overSince: null, overSaid: false, metaKey: null, said: null,
+    greetPending: false, travelled: 0,
   });
   $('install').hidden = true;
   $('demoTag').hidden = !state.demo;
@@ -335,7 +340,7 @@ function toDrive({ auto = false } = {}) {
   state.hud.park(false);
   beginTrip();
   if (state.last) place(state.last, 0);
-  if (!auto || voiceLive()) greet(); else showPill();
+  if (!auto || voiceLive()) speakWhenMoving(); else showPill();
   keepAwake();
 }
 
@@ -348,6 +353,7 @@ function toHome() {
   endTrip();
   state.trip = null;
   state.mode = 'home';
+  state.greetPending = false;
   if (state.demo) endDemo();
   state.hud.setBike(bike());
   Object.assign(state, { stab: makeStabiliser(), shown: null, stillScene: false, judged: new WeakMap(), metaKey: null, walk: null, speedTarget: null });
@@ -496,6 +502,10 @@ function onFix(raw) {
   if (state.mode === 'drive') checkOver(kmh);
   trace(fix, kmh);
   follow(fix, kmh);
+  if (state.greetPending) {
+    state.travelled += fix.moved || 0;
+    if (underway(fix)) { state.greetPending = false; greet(); }
+  }
   // Moving is driving, whether or not anyone tapped.
   if (kmh != null && kmh < 3) state.holdAuto = false;
   if (state.mode === 'home' && !state.holdAuto && kmh != null && kmh >= MOVING_KMH) toDrive({ auto: true });
@@ -516,7 +526,8 @@ function place(fix, step) {
       const first = !state.shown;
       state.shown = r;
       if (state.mode === 'drive') {
-        announce(r);
+        // Still waiting to set off, the greeting will say whatever is shown by then.
+        if (!state.greetPending) announce(r);
         if (first) setBadge(r.limit.max, r.limit.tier); else arrive(r.limit.max, r.limit.tier);
       } else setHere(r);
     }
@@ -887,6 +898,17 @@ function say(line, opts) {
   state.voice.cue(typeof line === 'string' ? FIXED.find((f) => f.id === line) : line, opts);
 }
 
+// The first thing said on a trip waits for the car to move. Parked, the road under it was
+// matched with no direction to go on - maybe the street beside the garage rather than the
+// one it will leave by. The screen can show that guess; the voice should not say it. Past
+// the speed at which matching checks direction (2 m/s), or 60 m on at a crawl, the
+// greeting and the limit come together.
+const underway = (fix) => !!fix && (fix.speed > 2 || state.travelled > 60);
+function speakWhenMoving() {
+  if (underway(state.last)) greet();
+  else state.greetPending = true;
+}
+
 // The opening line, then the limit the badge already shows. Both wait for the clips a
 // moment, since the first thing said on a drive is the one most likely to be asked for
 // before its recording has arrived.
@@ -919,7 +941,9 @@ $('app').addEventListener('pointerdown', () => {
   p.innerHTML = `${SPEAKER}Đã bật giọng nói`;
   setTimeout(hidePill, 1300);
   Promise.race([state.voiceReady, new Promise((r) => setTimeout(r, 1500))]).then(() => {
-    if (state.mode === 'drive' && state.shown) announce(state.shown);
+    if (state.mode !== 'drive') return;
+    if (!underway(state.last)) speakWhenMoving();
+    else if (state.shown) announce(state.shown);
   });
 }, true);
 

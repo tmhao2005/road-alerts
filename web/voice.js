@@ -108,13 +108,13 @@ export function makeVoice(ac, base = 'voice') {
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   }
 
-  function chime(freqs, t) {
+  function chime(freqs, t, peak = 0.25) {
     for (const f of freqs) {
       const o = ac.createOscillator(), g = ac.createGain();
       o.type = 'sine';
       o.frequency.value = f;
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.25, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(peak, t + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, t + NOTE);
       o.connect(g).connect(ac.destination);
       o.start(t);
@@ -173,6 +173,8 @@ export function makeVoice(ac, base = 'voice') {
 
   return {
     preload, setVoice, cue, cut,
+    // A cue with no words: something was heard, and there is nothing to say yet.
+    tone(freqs, peak) { chime(freqs, ac.currentTime + 0.03, peak); },
     has: (id) => clips.has(id),
     count: () => clips.size,
     // For a voice picker, whenever there is one to build.

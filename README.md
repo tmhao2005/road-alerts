@@ -349,6 +349,10 @@ There is one screen, parked or driving, and no start screen:
   the driver. Two buttons for now, Ô tô (≤ 28 chỗ) and Xe máy (trên 50 cc), for the
   vehicles the household drives; the one driven last is filled. The camera swings down into
   the driver's seat and the small sign grows into the badge.
+- **The voice waits for the car to move.** The tap gets one soft tone, lower than every
+  other cue; "Bắt đầu" and the limit come when the car sets off (past 2 m/s, or 60 m at a
+  crawl). Parked, the road was matched with no direction to go on, so the screen may show
+  that guess but the voice does not say it.
 - **Driving off without a tap still drives.** Past 10 km/h the screen turns to driving on
   the vehicle used last, and asks "Chạm để bật giọng nói" for the voice.
 - **The trip ending is coming home.** Five minutes standing still, ten minutes away from
