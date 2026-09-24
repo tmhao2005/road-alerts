@@ -270,49 +270,93 @@ ${['sign-60', 'light'].map(accentBlock).join('')}
 const PLAIN = DIRECTION.__plain;
 
 function takesPage(id, text, takes, format, voice) {
-  const btn = (src, top, sub) => `<button data-src="${src}"><b>${top}</b><span>${sub}</span></button>`;
+  const btn = (src, top, sub) => `<button data-src="${src}" disabled><b>${top}</b><span>${sub}</span></button>`;
   return `<!doctype html>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Takes — ${id}</title>
 <style>
   :root { color-scheme: dark; --bg:#111318; --fg:#e8eaf0; --dim:#8b93a7; --line:#262a33; --hit:#2f6df6; }
-  body { background:var(--bg); color:var(--fg); font:16px/1.5 -apple-system,system-ui,sans-serif; margin:0; padding:24px 16px 64px; }
-  h1 { font-size:20px; margin:0 0 4px; }
-  h3 { font-size:12px; letter-spacing:.07em; text-transform:uppercase; color:var(--dim); margin:26px 0 10px; }
-  p { color:var(--dim); max-width:46em; margin:0 0 6px; }
+  body { background:var(--bg); color:var(--fg); font:16px/1.5 -apple-system,system-ui,sans-serif; margin:0; padding:20px 16px 64px; }
+  h1 { font-size:21px; margin:0 0 6px; }
+  h3 { font-size:12px; letter-spacing:.07em; text-transform:uppercase; color:var(--dim); margin:26px 0 8px; }
+  p { color:var(--dim); max-width:46em; margin:0 0 10px; }
   .row { display:flex; flex-wrap:wrap; gap:8px; }
   button { background:#191c23; color:var(--fg); border:1px solid var(--line); border-radius:10px;
-           padding:10px 14px; font:inherit; text-align:left; cursor:pointer; min-width:150px; }
-  button:hover { border-color:#3a4050; }
+           padding:13px 16px; font:inherit; text-align:left; cursor:pointer; min-width:150px; }
   button.on { background:var(--hit); border-color:var(--hit); }
-  button b { display:block; font-size:14px; }
+  button:disabled { opacity:.4; }
+  button b { display:block; font-size:15px; }
   button span { display:block; color:var(--dim); font-size:12px; }
   button.on span { color:#cfe0ff; }
+  #unlock { background:var(--hit); border-color:var(--hit); width:100%; text-align:center; font-size:17px; padding:17px; }
+  #unlock.done { background:#1d3a1f; border-color:#2f6d35; }
+  #info { font-family:ui-monospace,monospace; font-size:12px; color:var(--dim); white-space:pre-wrap;
+          border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:22px; }
   code { background:#191c23; padding:2px 6px; border-radius:5px; font-size:13px; }
 </style>
 <h1>${text}</h1>
-<p>Takes of <code>${id}</code> in ${voice}, against the one currently shipping. Pick one and install it:</p>
-<p><code>node tools/render-voice.js --install ${id} &lt;take&gt;</code></p>
+<p>Takes of <code>${id}</code> in ${voice}. Plays through Web Audio, the same as the app — an
+&lt;audio&gt; element would be silenced by the iOS ring switch.</p>
+
+<button id=unlock><b>Tap to enable audio</b></button>
+
 <h3>Currently shipping</h3>
 <div class=row>${btn(`../${voice}/${id}.${format}`, 'current', 'what the app says now')}</div>
+
 <h3>Full direction</h3>
 <div class=row>${takes.filter((t) => !t.plain).map((t) => btn(`${id}/${t.n}.${format}`, `take ${t.n}`, 'as rendered')).join('')}</div>
+
 <h3>Plain direction</h3>
 <p>Most of the delivery prose removed — just: ${PLAIN}</p>
 <div class=row>${takes.filter((t) => t.plain).map((t) => btn(`${id}/${t.n}.${format}`, `take ${t.n}`, 'minimal direction')).join('')}</div>
+
+<p style="margin-top:26px">Then install the one you want:<br><code>node tools/render-voice.js --install ${id} &lt;take&gt;</code></p>
+<div id=info>not started</div>
 <script>
-  let playing = null;
-  document.addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (playing) { playing.audio.pause(); playing.button.classList.remove('on'); }
-    const audio = new Audio(b.dataset.src);
-    b.classList.add('on');
-    audio.onended = () => b.classList.remove('on');
-    audio.play();
-    playing = { audio, button: b };
-  });
+var ac = null, cache = {}, playing = null, log = [];
+var info = document.getElementById('info'), unlock = document.getElementById('unlock');
+function say(m) { log.unshift(m); info.textContent = log.slice(0, 8).join('\\n'); }
+unlock.addEventListener('click', function () {
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    ac.resume().then(function () {
+      var s = ac.createBufferSource();
+      s.buffer = ac.createBuffer(1, 1, 22050);
+      s.connect(ac.destination); s.start(0);
+      unlock.className = 'done';
+      unlock.innerHTML = '<b>Audio enabled \\u2014 now tap a take</b>';
+      var bs = document.querySelectorAll('button[data-src]');
+      for (var i = 0; i < bs.length; i++) bs[i].disabled = false;
+      say('ready: ' + ac.sampleRate + ' Hz, state ' + ac.state);
+    })['catch'](function (e) { say('resume failed: ' + e); });
+  } catch (e) { say('no AudioContext: ' + e); }
+});
+document.addEventListener('click', function (e) {
+  var b = e.target.closest ? e.target.closest('button[data-src]') : null;
+  if (!b || !ac) return;
+  var src = b.getAttribute('data-src');
+  if (playing) { try { playing.stop(); } catch (_) {} playing = null; }
+  var all = document.querySelectorAll('button[data-src]');
+  for (var i = 0; i < all.length; i++) all[i].className = '';
+  b.className = 'on';
+  var go = function (buf) {
+    var s = ac.createBufferSource();
+    s.buffer = buf; s.connect(ac.destination);
+    s.onended = function () { b.className = ''; };
+    s.start(); playing = s;
+    say('playing ' + src + '  (' + buf.duration.toFixed(2) + 's)');
+  };
+  if (cache[src]) { go(cache[src]); return; }
+  say('loading ' + src + '\\u2026');
+  fetch(src).then(function (r) {
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.arrayBuffer();
+  }).then(function (a) {
+    return new Promise(function (res, rej) { ac.decodeAudioData(a, res, rej); });
+  }).then(function (buf) { cache[src] = buf; go(buf); })
+    ['catch'](function (err) { b.className = ''; say('FAILED ' + src + ': ' + (err.message || err)); });
+});
 </script>
 `;
 }
@@ -345,7 +389,13 @@ async function main() {
       const from = `${out}/takes/${id}/${take}.${format}`;
       if (!existsSync(from)) { console.error(`no take ${take} of ${id} - render some first`); process.exit(1); }
       await copyFile(from, `${out}/${voice}/${id}.${format}`);
+      // The service worker keeps clips until "built" changes, so a swapped file that left
+      // the manifest alone would deploy and then never reach anyone: every browser would
+      // go on serving the clip it already had.
+      m.built = new Date().toISOString();
+      await writeFile(`${out}/manifest.json`, JSON.stringify(m, null, 2) + '\n');
       console.log(`installed take ${take} as ${voice}/${id}.${format}`);
+      console.log(`manifest built ${m.built} - caches will drop the old clips`);
       return;
     }
 
