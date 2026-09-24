@@ -13,6 +13,21 @@ const NOTE = 0.13;     // a chime note
 const GAP = 0.04;      // between chime notes
 const OVERLAP = 0.06;  // the voice starts this far into the chime's decay, so there is no dead air
 const FADE = 0.08;     // an interrupted line rides down over this rather than clicking off
+const WAIT = 2500;     // how long a line waits for its clip before giving up and using the phone
+
+// Fetch order. Over a real network the set takes seconds to arrive, and a line asked for
+// before its clip lands is spoken by the phone instead - so the ones a drive needs first
+// are fetched first and the long tail of 5 and 115 can arrive whenever.
+const LIKELY = ['60', '50', '40', '80', '30', '70', '90', '100', '120'];
+function soonest(ids) {
+  const rank = (id) => {
+    const n = id.replace(/^(sign|law)-/, '');
+    if (n === id) return 0; // the fixed lines: start, light, over, logged
+    const i = LIKELY.indexOf(n);
+    return i < 0 ? 99 : 1 + i;
+  };
+  return [...ids].sort((a, b) => rank(a) - rank(b));
+}
 
 export function makeVoice(ac, base = 'voice') {
   const clips = new Map();
@@ -20,6 +35,7 @@ export function makeVoice(ac, base = 'voice') {
   let phoneVoice = null;
   let manifest = null;
   let voice = null;
+  let pending = null; // the in-flight preload, so a line can wait for it instead of falling back
 
   // getVoices() is usually empty on the first call - the list arrives asynchronously. The
   // old code read it at speaking time and, finding nothing, let the utterance go to the
@@ -38,6 +54,11 @@ export function makeVoice(ac, base = 'voice') {
   // Every rendered voice ships, but only the chosen one is ever fetched, so the others cost
   // repository size and nothing on a drive.
   async function preload(pick) {
+    pending = load(pick);
+    try { return await pending; } finally { pending = null; }
+  }
+
+  async function load(pick) {
     try {
       const res = await fetch(`${base}/manifest.json`);
       if (res.ok) manifest = await res.json();
@@ -51,7 +72,7 @@ export function makeVoice(ac, base = 'voice') {
     // all and leave the drive on the phone's own voice.
     voice = pick || (names.includes(stored) ? stored : null) || manifest.default;
     clips.clear();
-    const queue = allLines().map((l) => l.id);
+    const queue = soonest(allLines().map((l) => l.id));
     const failed = [];
     await Promise.all(Array.from({ length: 6 }, async () => {
       while (queue.length) {
@@ -125,8 +146,19 @@ export function makeVoice(ac, base = 'voice') {
 
   // queue: wait for whatever is being said instead of cutting it off. A limit change may
   // interrupt anything; a light never interrupts a limit.
-  function cue(line, { chime: freqs = null, queue = false } = {}) {
+  function cue(line, opts = {}) {
     if (!line) return;
+    // The set is still arriving. Waiting beats falling back: otherwise the opening seconds
+    // of every drive on a real connection are spoken by the phone, which is the exact thing
+    // the recordings were made to replace.
+    if (line.id && !clips.has(line.id) && pending) {
+      Promise.race([pending, new Promise((r) => setTimeout(r, WAIT))]).then(() => schedule(line, opts));
+      return;
+    }
+    schedule(line, opts);
+  }
+
+  function schedule(line, { chime: freqs = null, queue = false } = {}) {
     const now = ac.currentTime;
     if (queue) {
       if (playing && playing.endsAt > now) {

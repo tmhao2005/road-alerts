@@ -11,7 +11,7 @@
 // Providers are kept behind one interface because the choice is genuinely open: neither
 // model here is Vietnamese-first, and a vendor that is (FPT.AI, Zalo, Viettel) would slot
 // in as another entry below without touching the app.
-import { writeFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
+import { writeFile, readFile, copyFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -65,6 +65,7 @@ const DIRECTION = {
   calm: 'Informational, unhurried, a little warm. You are pointing something out, not warning.',
   urgent: 'Firmer and slightly quicker, with more weight on the first syllable. Serious but never alarmed - a startled driver is a worse driver.',
   sure: 'Definite and matter-of-fact, with a clear settled fall on the final number. This was read off a sign; you are not guessing.',
+  __plain: 'Say it plainly and naturally, at an ordinary conversational pace.',
   hedged: 'Softer and a touch lower, slightly slower, easing off the final number rather than landing hard on it. This was worked out from the rules, not seen, and it should sound like it.',
 };
 
@@ -262,6 +263,60 @@ ${['sign-60', 'light'].map(accentBlock).join('')}
 `;
 }
 
+// A line that comes out wrong is not always the prompt's fault - these models vary run to
+// run, and the empty responses seen elsewhere show how much. So a re-render offers several
+// takes to choose between, and half of them drop most of the direction: an over-instructed
+// delivery is its own way of sounding unnatural.
+const PLAIN = DIRECTION.__plain;
+
+function takesPage(id, text, takes, format, voice) {
+  const btn = (src, top, sub) => `<button data-src="${src}"><b>${top}</b><span>${sub}</span></button>`;
+  return `<!doctype html>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Takes — ${id}</title>
+<style>
+  :root { color-scheme: dark; --bg:#111318; --fg:#e8eaf0; --dim:#8b93a7; --line:#262a33; --hit:#2f6df6; }
+  body { background:var(--bg); color:var(--fg); font:16px/1.5 -apple-system,system-ui,sans-serif; margin:0; padding:24px 16px 64px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h3 { font-size:12px; letter-spacing:.07em; text-transform:uppercase; color:var(--dim); margin:26px 0 10px; }
+  p { color:var(--dim); max-width:46em; margin:0 0 6px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; }
+  button { background:#191c23; color:var(--fg); border:1px solid var(--line); border-radius:10px;
+           padding:10px 14px; font:inherit; text-align:left; cursor:pointer; min-width:150px; }
+  button:hover { border-color:#3a4050; }
+  button.on { background:var(--hit); border-color:var(--hit); }
+  button b { display:block; font-size:14px; }
+  button span { display:block; color:var(--dim); font-size:12px; }
+  button.on span { color:#cfe0ff; }
+  code { background:#191c23; padding:2px 6px; border-radius:5px; font-size:13px; }
+</style>
+<h1>${text}</h1>
+<p>Takes of <code>${id}</code> in ${voice}, against the one currently shipping. Pick one and install it:</p>
+<p><code>node tools/render-voice.js --install ${id} &lt;take&gt;</code></p>
+<h3>Currently shipping</h3>
+<div class=row>${btn(`../${voice}/${id}.${format}`, 'current', 'what the app says now')}</div>
+<h3>Full direction</h3>
+<div class=row>${takes.filter((t) => !t.plain).map((t) => btn(`${id}/${t.n}.${format}`, `take ${t.n}`, 'as rendered')).join('')}</div>
+<h3>Plain direction</h3>
+<p>Most of the delivery prose removed — just: ${PLAIN}</p>
+<div class=row>${takes.filter((t) => t.plain).map((t) => btn(`${id}/${t.n}.${format}`, `take ${t.n}`, 'minimal direction')).join('')}</div>
+<script>
+  let playing = null;
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (playing) { playing.audio.pause(); playing.button.classList.remove('on'); }
+    const audio = new Audio(b.dataset.src);
+    b.classList.add('on');
+    audio.onended = () => b.classList.remove('on');
+    audio.play();
+    playing = { audio, button: b };
+  });
+</script>
+`;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const flag = (name, fallback) => {
@@ -274,6 +329,47 @@ async function main() {
   if (!p) { console.error(`unknown provider "${name}" - try ${Object.keys(PROVIDERS).join(' or ')}`); process.exit(1); }
   const key = process.env[p.env];
   if (!key) { console.error(`${p.env} is not set.\n\n  set -a; . ./.env; set +a\n`); process.exit(1); }
+
+  // Re-render one line without disturbing the other fifty-three, and without overwriting
+  // what ships until a take has actually been listened to.
+  if (args.includes('--line') || args.includes('--install')) {
+    const out = flag('--out', 'web/voice');
+    let m = {};
+    try { m = JSON.parse(await readFile(`${out}/manifest.json`, 'utf8')); } catch {}
+    const format = m.format || 'm4a';
+    const voice = flag('--voice', m.default || p.voices[0][0]);
+
+    if (args.includes('--install')) {
+      const i = args.indexOf('--install');
+      const [id, take] = [args[i + 1], String(args[i + 2] || '').padStart(2, '0')];
+      const from = `${out}/takes/${id}/${take}.${format}`;
+      if (!existsSync(from)) { console.error(`no take ${take} of ${id} - render some first`); process.exit(1); }
+      await copyFile(from, `${out}/${voice}/${id}.${format}`);
+      console.log(`installed take ${take} as ${voice}/${id}.${format}`);
+      return;
+    }
+
+    const id = flag('--line');
+    const line = allLines().find((l) => l.id === id);
+    if (!line) { console.error(`unknown line "${id}"`); process.exit(1); }
+    const n = Number(flag('--takes', 8));
+    const accent = flag('--accent', m.accent || 'neutral');
+    const extra = Object.fromEntries(ACCENTS)[accent] ?? '';
+    const dir = `${out}/takes/${id}`;
+    await mkdir(dir, { recursive: true });
+    // Half with the direction as written, half with almost none, so the comparison says
+    // whether the prose or the model is at fault.
+    const takes = Array.from({ length: n }, (_, i) => ({ n: String(i + 1).padStart(2, '0'), plain: i >= Math.ceil(n / 2) }));
+    console.log(`${n} takes of "${line.text}" in ${voice}${accent === 'neutral' ? '' : ` (${accent})`}`);
+    await pool(takes, 4, async (t) => {
+      const spoken = t.plain ? { ...line, voice: '__plain' } : line;
+      await writeFile(`${dir}/${t.n}.${p.format}`, await speak(p, spoken, voice, key, extra));
+    });
+    if (format === 'm4a' && p.format === 'wav') await compress(dir, takes.map((t) => t.n));
+    await writeFile(`${out}/takes/index.html`, takesPage(id, line.text, takes, format, voice));
+    console.log(`\nnpm run site && npm run serve, then open /voice/takes/`);
+    return;
+  }
 
   if (args.includes('--audition')) {
     const lines = allLines().filter((l) => AUDITION_LINES.includes(l.id));
