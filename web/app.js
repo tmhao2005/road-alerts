@@ -1,4 +1,5 @@
-// Test app: GPS in, spoken and displayed speed limit out, plus a trip log for review.
+// Test app: GPS in, spoken and displayed speed limit out, and a review of every Sai once
+// the trip is over.
 // Every decision about the number lives in the tested modules under src/; this file only
 // wires the phone to them and draws the result.
 import { tilesAround, matchLive, evaluate, makeStabiliser } from './src/live.js';
@@ -10,13 +11,17 @@ import { makeAutopilot } from './src/autopilot.js';
 import { makeFixFiller } from './src/fix.js';
 import { VEHICLES } from './src/limit.js';
 import { metresPerDegree } from './src/geo.js';
+import { makeStillness, lastChange, pending, retain, whenLabel, STILL, GAP_MS, MOVING_KMH } from './src/trip.js';
 import { makeHud } from './hud.js';
+import { makeReview } from './review.js';
 import { attachGestures } from './gestures.js';
 import { makeVoice } from './voice.js';
 import { signLine, lawLine, lightLine, FIXED } from './src/phrases.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
+// ?mock: a made-up trip waiting for review, as if it had just been driven.
+const mock = params.has('mock');
 
 // Storage can be unavailable (private browsing) or full; the app must keep working and
 // just keep the log in memory.
@@ -24,6 +29,34 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
 };
+
+// Everything a trip leaves behind: its outline in 'trips', its trace under 'trace:<id>' and
+// its reports in 'reports'. Demo drives and ?mock keep theirs in memory instead, so looking
+// around never touches a real trip.
+const disk = {
+  get: (k, d) => store.get(k, d),
+  // A full store must not quietly swallow a report: room is made by letting the oldest
+  // traces go, the least valuable thing kept.
+  set(k, v) {
+    for (let i = 0; i < 6; i++) {
+      if (store.set(k, v)) return true;
+      const old = store.get('trips', []).sort((a, b) => a.id - b.id)
+        .find((t) => (!state.trip || t.id !== state.trip.id) && has(`trace:${t.id}`));
+      if (!old) return false;
+      disk.del(`trace:${old.id}`);
+    }
+    return false;
+  },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+function has(k) { try { return localStorage.getItem(k) != null; } catch { return false; } }
+const memory = new Map();
+const scratch = {
+  get: (k, d) => (memory.has(k) ? memory.get(k) : d),
+  set: (k, v) => { memory.set(k, v); return true; },
+  del: (k) => memory.delete(k),
+};
+const home = (x) => (x && x.scratch ? scratch : disk);
 
 // Drives for checking the screen without a car: real roads, a pretend driver.
 const DEMOS = {
@@ -52,7 +85,13 @@ const state = {
   walk: null,
   overSince: null,
   overSaid: false,
-  log: store.get('log', []),
+  trip: null,        // the trip being driven: { id, start, end, vehicle, built, scratch }
+  trace: [],         // its snapshots, every 5 s and at every event
+  window: [],        // the last 30 s of fixes, once a second: what a report carries
+  tripEnded: false,
+  still: null,
+  hiddenAt: null,
+  reviewFrom: null,
   sources: { gps: 0, derived: 0, none: 0 },
   lastTrace: 0,
   lastSave: 0,
@@ -97,18 +136,43 @@ function renderLogButton() {
     b = document.createElement('button');
     b.id = 'clear'; b.type = 'button'; b.className = 'link';
     b.onclick = () => {
-      if (!state.log.length) return;
-      if (confirm(`Xoá ${state.log.length} mục nhật ký cũ? Hãy xuất trước nếu cần.`)) {
-        state.log = []; store.set('log', state.log); renderLogButton();
+      const trips = disk.get('trips', []), reports = disk.get('reports', []);
+      if (!trips.length && !reports.length) return;
+      if (confirm(`Xoá ${trips.length} chuyến và ${reports.length} lần báo sai đã lưu? Hãy xuất trước nếu cần.`)) {
+        for (const t of trips) disk.del(`trace:${t.id}`);
+        disk.del('trips'); disk.del('reports');
+        renderLogButton(); renderPending();
       }
     };
     document.querySelector('.start-inner').appendChild(b);
   }
-  const reports = state.log.filter((e) => e.type === 'report').length;
-  b.textContent = state.log.length ? `Nhật ký cũ: ${reports} lần báo sai, ${state.log.length} mục — xoá` : '';
-  b.hidden = !state.log.length;
+  const trips = disk.get('trips', []).length, reports = disk.get('reports', []).length;
+  b.textContent = trips || reports ? `Nhật ký: ${trips} chuyến, ${reports} lần báo sai — xoá` : '';
+  b.hidden = !(trips || reports);
 }
+
+// Reports waiting for an answer lead the start screen: this is where a driver who closed
+// the app at the end of a trip finds them again.
+const allPending = () => pending([...disk.get('reports', []), ...scratch.get('reports', [])], Date.now());
+const signChip = (r) => {
+  const m = r.shown && r.shown.max;
+  return `<span class="mini-sign ${m == null ? 'unknown' : ''}">${m ?? '–'}</span>`;
+};
+function renderPending() {
+  const list = allPending();
+  const b = $('pending');
+  b.hidden = !list.length;
+  if (!list.length) return;
+  b.innerHTML = `<span class="sign-stack">${list.slice(0, 3).reverse().map(signChip).join('')}</span>
+    <div><b>${list.length} chỗ chưa xem</b><small>Bạn bấm Sai ${whenLabel(list[0].t, Date.now())} · xem khi xe đã dừng</small></div>
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
+}
+$('pending').onclick = () => openReview(allPending(), 'start');
+
+migrate();
+tidy();
 renderLogButton();
+renderPending();
 
 $('go').onclick = () => start(null);
 
@@ -143,10 +207,11 @@ async function start(demo) {
   setBadge(null, null);
   $('roadName').textContent = 'Đang tìm đường…';
   $('roadMeta').textContent = '';
-  if (!demo) state.log.push({ type: 'start', t: new Date().toISOString(), vehicle: state.vehicle, ua: navigator.userAgent });
-  renderCount();
+  hideTripEnd();
+  beginTrip();
   try {
     state.index = await (await fetch('tiles/index.json')).json();
+    state.trip.built = state.index.built;
     $('tier').textContent = demo ? 'Đang tải' : 'Đang chờ GPS';
     $('built').textContent = `OSM, ${state.index.built}`;
   } catch {
@@ -163,11 +228,18 @@ $('stop').onclick = () => {
   state.watch = null; state.timer = null; state.raf = null;
   try { state.wake && state.wake.release(); } catch {}
   if (state.voice) state.voice.cut();
-  save(true);
+  const trip = state.trip;
+  endTrip(false);
+  state.trip = null;
+  hideTripEnd();
   openSheet(false);
   $('drive').hidden = true;
   $('start').hidden = false;
   renderLogButton();
+  renderPending();
+  // Stopping on purpose is the clearest end of a trip there is.
+  const waiting = trip ? waitingFor(trip) : [];
+  if (waiting.length) openReview(waiting, 'start');
 };
 
 // ---------- position ----------
@@ -209,7 +281,17 @@ async function startDemo(d) {
   const step = makeAutopilot({ getPieces, start: d.start, heading: d.heading, kmh: d.kmh, seed: d.seed });
   if (!step) { $('roadName').textContent = 'Không tìm thấy đường mô phỏng'; return; }
   // One fix a second, like the phone's GPS, so the smoothing is seen doing real work.
-  const tick = () => onFix({ ...step(1), t: Date.now() });
+  // ?park=60 stops the car after a minute, to see a trip end without waiting at a desk.
+  const park = Number(params.get('park')) || 0, t0 = Date.now();
+  let parked = null;
+  const tick = () => {
+    if (park && Date.now() - t0 > park * 1000) {
+      parked = parked || state.last;
+      onFix({ lon: parked.lon, lat: parked.lat, acc: 5, heading: null, speed: 0, t: Date.now() });
+      return;
+    }
+    onFix({ ...step(1), t: Date.now() });
+  };
   tick();
   state.timer = setInterval(tick, 1000);
 }
@@ -238,6 +320,7 @@ function onFix(raw) {
 
   checkOver(kmh);
   trace(fix, kmh);
+  follow(fix, kmh);
 }
 
 // Match the fix to a road and show what follows from it. Also run again, with no distance
@@ -304,7 +387,7 @@ function ahead(pieces, m, fix, shownValue) {
     const { speak } = state.lights(walk.lights.filter((l) => l.dist <= reach));
     if (speak) {
       announceLight(speak);
-      if (!state.demo) state.log.push({ ...snapshot('light', fix, Math.round(fix.speed * 3.6)), light: speak.id, dist: Math.round(speak.dist) });
+      if (state.trip) state.trace.push({ ...snapshot('light', fix, Math.round(fix.speed * 3.6)), light: speak.id, dist: Math.round(speak.dist) });
     }
   }
   const judge = (piece) => {
@@ -347,7 +430,7 @@ function ensureTiles(lon, lat) {
       .then((r) => (r.ok ? r.json() : []))
       .then((j) => {
         state.tiles.set(k, j);
-        if (state.last && !state.current && state.index && !state.demo) place(state.last, 0);
+        if (state.last && !state.current && state.index && !state.demo && !$('drive').hidden) place(state.last, 0);
       })
       .catch(() => { state.tiles.delete(k); });
     state.tiles.set(k, p);
@@ -465,7 +548,7 @@ function arrive(max, tier) {
 }
 
 function renderCount() {
-  const n = state.log.filter((e) => e.type === 'report').length;
+  const n = state.trip ? home(state.trip).get('reports', []).filter((r) => r.trip === state.trip.id).length : 0;
   $('count').textContent = `${n} lần`;
 }
 
@@ -637,8 +720,11 @@ async function keepAwake() {
   try { state.wake = await navigator.wakeLock.request('screen'); } catch {}
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && !$('drive').hidden) keepAwake();
-  if (document.visibilityState === 'hidden') save(true);
+  if (document.visibilityState === 'hidden') { state.hiddenAt = Date.now(); saveTrip(true); return; }
+  if ($('drive').hidden) return;
+  keepAwake();
+  // Away this long, the trip that was running is over; the next movement starts another.
+  if (state.hiddenAt && Date.now() - state.hiddenAt > GAP_MS) endTrip();
 });
 
 // ---------- log ----------
@@ -669,46 +755,230 @@ function snapshot(type, fix = state.last, kmh = null) {
 }
 
 function trace(fix, kmh) {
-  if (state.demo) return;
+  if (!state.trip) return;
   const now = Date.now();
   if (now - state.lastTrace < 5000) return;
   state.lastTrace = now;
-  state.log.push(snapshot('trace', fix, kmh));
-  save(false);
+  state.trace.push(snapshot('trace', fix, kmh));
+  saveTrip(false);
 }
 
-function save(force) {
+// ---------- trips ----------
+
+// A trip starts with the drive screen and ends when the car has stood still for a while,
+// when the app has been away for a while, or when Dừng is pressed. Getting that wrong is
+// cheap: the review it offers folds away as soon as the car moves, and a new trip begins.
+function beginTrip() {
+  const trip = { id: Date.now(), start: new Date().toISOString(), vehicle: state.vehicle, built: state.index ? state.index.built : null };
+  if (state.demo || mock) trip.scratch = true;
+  Object.assign(state, {
+    trip, tripEnded: false, window: [], still: makeStillness(stillFor()), lastTrace: 0, lastSave: 0,
+    trace: [{ type: 'start', t: trip.start, vehicle: state.vehicle, ua: navigator.userAgent }],
+  });
+  const d = home(trip);
+  const kept = retain([], [...d.get('trips', []), { ...trip }], Date.now());
+  d.set('trips', kept.trips);
+  for (const id of kept.dropped) d.del(`trace:${id}`);
+  renderCount();
+}
+
+// ?still=20 shortens the wait, for trying the end of a trip at a desk.
+function stillFor() {
+  const s = Number(params.get('still'));
+  if (s > 0) return { ...STILL, ms: s * 1000 };
+  // A demo car waits 8 s at a light; standing 20 s means the demo has parked.
+  return state.demo ? { ...STILL, ms: 20e3 } : STILL;
+}
+
+function saveTrip(force) {
+  if (!state.trip) return;
   const now = Date.now();
   if (!force && now - state.lastSave < 30000) return;
   state.lastSave = now;
-  store.set('log', state.log);
+  const d = home(state.trip);
+  d.set(`trace:${state.trip.id}`, state.trace);
+  d.set('trips', d.get('trips', []).map((t) => (t.id === state.trip.id ? { ...state.trip } : t)));
 }
+
+function endTrip(show = true) {
+  if (!state.trip || state.tripEnded) return;
+  state.tripEnded = true;
+  state.trip.end = new Date().toISOString();
+  saveTrip(true);
+  if (show) showTripEnd();
+}
+
+// Every fix: the seconds a report would carry, and whether the trip is over or starting again.
+function follow(fix, kmh) {
+  if (!state.trip) return;
+  const now = Date.now();
+  state.window.push({ t: now, lon: +fix.lon.toFixed(6), lat: +fix.lat.toFixed(6), kmh, shown: state.shown ? state.shown.limit.max : null });
+  while (state.window.length && now - state.window[0].t > 30e3) state.window.shift();
+  if (state.tripEnded) {
+    if (kmh != null && kmh > MOVING_KMH) resume();
+  } else if (state.still({ t: now, lon: fix.lon, lat: fix.lat, kmh }).ended) endTrip();
+}
+
+// Driving again: whatever the end of the last trip put on screen gets out of the way.
+function resume() {
+  beginTrip();
+  if (review && review.isOpen() && state.reviewFrom === 'drive') review.close();
+  hideTripEnd();
+}
+
+const waitingFor = (trip) => pending(home(trip).get('reports', []), Date.now()).filter((r) => r.trip === trip.id);
+
+// The drive panel turns into the end of the trip: the numbers the app said where the
+// driver tapped, and one button to go through them. Nothing to show, nothing shown.
+function showTripEnd() {
+  const waiting = state.trip ? waitingFor(state.trip) : [];
+  if (!waiting.length) { hideTripEnd(); return; }
+  $('teSigns').innerHTML = waiting.slice(0, 3).reverse().map(signChip).join('');
+  $('teSub').textContent = `${waiting.length} chỗ bạn bấm Sai cần xem`;
+  $('panel').classList.add('ended');
+  $('tripEnd').hidden = false;
+  $('recenter').hidden = true;
+}
+function hideTripEnd() {
+  $('panel').classList.remove('ended');
+  $('tripEnd').hidden = true;
+}
+$('teOpen').onclick = () => openReview(waitingFor(state.trip), 'drive');
+$('teLater').onclick = hideTripEnd;
+
+// ---------- reports ----------
 
 $('wrong').onclick = () => {
   const kmh = state.last && state.last.speed != null ? Math.round(state.last.speed * 3.6) : null;
-  if (!state.demo) {
-    state.log.push(snapshot('report', state.last, kmh));
-    save(true);
+  if (state.trip) {
+    const snap = snapshot('report', state.last, kmh);
+    state.trace.push(snap);
+    const r = state.current;
+    const window = state.window.map((w) => ({ ...w }));
+    saveReport({
+      ...snap, id: Date.now(), trip: state.trip.id, vehicle: state.vehicle, scratch: state.trip.scratch,
+      // The facts the limit came from, so the review can reason about which one was wrong.
+      facts: r ? { expressway: r.road.expressway, divided: r.road.divided, oneway: r.road.oneway, lanes: r.road.lanes, inside: r.zone.inside } : null,
+      window, changeAt: lastChange(window),
+    });
+    saveTrip(true);
     renderCount();
   }
   say('logged');
   $('wrong').animate([{ transform: 'scale(1)' }, { transform: 'scale(0.95)' }, { transform: 'scale(1)' }], { duration: 380, easing: SPRING });
 };
 
-$('export').onclick = async () => {
-  save(true);
+function saveReport(r) {
+  const d = home(r);
+  const list = d.get('reports', []);
+  const i = list.findIndex((x) => x.id === r.id);
+  // Changed since it was sent: the new answer has not reached anyone yet.
+  const next = { ...r, sentAt: null };
+  if (i >= 0) list[i] = next; else list.push(next);
+  d.set('reports', list);
+}
+
+// Before trips there was one flat log. It becomes a trip of its own, and any Sai in it
+// joins the queue - without the seconds before each tap, which were never kept.
+function migrate() {
+  const log = store.get('log', null);
+  if (!Array.isArray(log) || !log.length) { disk.del('log'); return; }
+  const id = Date.parse(log[0].t) || Date.now();
+  const vehicle = (log.find((e) => e.type === 'start') || {}).vehicle || state.vehicle;
+  const reports = disk.get('reports', []);
+  for (const e of log) {
+    if (e.type === 'report' && !reports.some((r) => r.t === e.t)) reports.push({ ...e, id: Date.parse(e.t), trip: id, vehicle, window: [], changeAt: 0 });
+  }
+  if (!disk.set(`trace:${id}`, log) || !disk.set('reports', reports)) return;
+  disk.set('trips', [...disk.get('trips', []).filter((t) => t.id !== id), { id, start: log[0].t, end: log[log.length - 1].t, vehicle }]);
+  disk.del('log');
+}
+
+function tidy() {
+  const reports = disk.get('reports', []), trips = disk.get('trips', []);
+  const kept = retain(reports, trips, Date.now());
+  if (kept.reports.length !== reports.length) disk.set('reports', kept.reports);
+  if (kept.trips.length !== trips.length) disk.set('trips', kept.trips);
+  for (const id of kept.dropped) disk.del(`trace:${id}`);
+}
+
+// ?mock: a made-up trip on real roads (tools/mock-trip.js), ended twelve minutes ago and
+// waiting for review. Memory only.
+async function loadMock() {
+  try {
+    const { trip, trace: tr, reports } = await (await fetch('mock/trip.json')).json();
+    const shift = Date.now() - 12 * 60e3 - Date.parse(trip.end);
+    const iso = (t) => new Date(Date.parse(t) + shift).toISOString();
+    const id = trip.id + shift;
+    scratch.set('trips', [{ ...trip, id, start: iso(trip.start), end: iso(trip.end), scratch: true }]);
+    scratch.set(`trace:${id}`, tr.map((e) => ({ ...e, t: iso(e.t) })));
+    scratch.set('reports', reports.map((r) => ({
+      ...r, id: r.id + shift, trip: id, t: iso(r.t), scratch: true, window: r.window.map((w) => ({ ...w, t: w.t + shift })),
+    })));
+    renderPending();
+  } catch {}
+}
+
+// ---------- review ----------
+
+let review = null;
+function openReview(list, from) {
+  if (!list.length) return;
+  state.reviewFrom = from;
+  review = review || makeReview({
+    spring: SPRING,
+    pieces: async (lon, lat) => {
+      if (!state.index) { try { state.index = await (await fetch('tiles/index.json')).json(); } catch { return []; } }
+      await ensureTiles(lon, lat);
+      return piecesAround(lon, lat);
+    },
+    trace: (id) => (state.trip && state.trip.id === id ? state.trace : scratch.get(`trace:${id}`, null) || disk.get(`trace:${id}`, null)),
+    save: saveReport,
+    share: exportAll,
+    close: () => {
+      if (state.reviewFrom === 'drive' && !$('drive').hidden) showTripEnd();
+      renderPending();
+      renderLogButton();
+    },
+    remember: store,
+  });
+  // In the order they were driven.
+  review.open([...list].sort((a, b) => Date.parse(a.t) - Date.parse(b.t)));
+}
+
+// ---------- export ----------
+
+// Everything kept, as one file: each trip with its trace, and every report with its answers.
+async function exportAll() {
+  saveTrip(true);
+  const pick = (d) => ({
+    trips: d.get('trips', []).map((t) => ({ ...t, trace: d.get(`trace:${t.id}`, null) })),
+    reports: d.get('reports', []),
+  });
+  const real = pick(disk), play = pick(scratch);
   const stamp = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 16).replace(/[:T]/g, '-');
   const name = `chuyen-di-${stamp}.json`;
-  const body = JSON.stringify({ app: 'road-alerts test', exported: new Date().toISOString(), data: state.index && state.index.built, entries: state.log });
+  const body = JSON.stringify({
+    app: 'road-alerts test', exported: new Date().toISOString(), data: state.index && state.index.built,
+    trips: [...real.trips, ...play.trips], reports: [...real.reports, ...play.reports],
+  });
   const file = new File([body], name, { type: 'application/json' });
+  let sent = false;
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: name }); return; } catch {}
+    try { await navigator.share({ files: [file], title: name }); sent = true; } catch (e) { if (e && e.name === 'AbortError') return false; }
   }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(file);
-  a.download = name;
-  a.click();
-};
+  if (!sent) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = name;
+    a.click();
+  }
+  const at = new Date().toISOString();
+  disk.set('reports', real.reports.map((r) => ({ ...r, sentAt: at })));
+  return true;
+}
+
+$('export').onclick = exportAll;
 
 // Offline page and tiles. Browsers only allow a service worker on https or localhost, so
 // the phone on the LAN address simply runs without one.
@@ -719,5 +989,6 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 // ?auto skips the start screen - for checking a pinned ?at= position at a desk, or
 // ?demo=q7 to run a demo drive straight away. Voice stays silent this way, since phones
 // only allow sound after a real tap.
+if (mock) loadMock();
 if (params.has('demo')) start(DEMOS[params.get('demo')] ? params.get('demo') : 'q7');
 else if (params.has('auto')) start(null);

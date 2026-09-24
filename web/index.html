@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="review.css">
 </head>
 <body>
 
@@ -24,6 +25,8 @@
     <div class="app-mark" aria-hidden="true">60</div>
     <h1>Tốc độ tối đa</h1>
     <p class="lede">Bản thử cho một chuyến đi. Người ngồi cạnh cầm máy — tài xế không chạm vào điện thoại.</p>
+
+    <button id="pending" class="pending" type="button" hidden></button>
 
     <label class="field">
       <span>Loại xe</span>
@@ -40,7 +43,7 @@
     <ul class="notes">
       <li>Thêm vào Màn hình chính để mở như một ứng dụng.</li>
       <li>Giữ màn hình sáng và app ở phía trước suốt chuyến đi.</li>
-      <li>Khi app sai, bấm <b>Sai</b>. App ghi lại chỗ đó để xem sau.</li>
+      <li>Khi app sai, bấm <b>Sai</b> — chỉ vậy thôi. Xong chuyến, app hỏi lại từng chỗ.</li>
     </ul>
   </div>
 </section>
@@ -76,6 +79,16 @@
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>
       </button>
     </div>
+    <div id="tripEnd" class="trip-end" hidden>
+      <div class="te-top">
+        <div id="teSigns" class="sign-stack"></div>
+        <div><b>Chuyến đi xong</b><small id="teSub"></small></div>
+      </div>
+      <div class="te-actions">
+        <button id="teLater" class="te-later" type="button">Để sau</button>
+        <button id="teOpen" class="te-open" type="button">Xem lại</button>
+      </div>
+    </div>
   </div>
 
   <div id="scrim" class="sheet-scrim"></div>
@@ -97,6 +110,25 @@
     <div class="attrib">Dữ liệu bản đồ © OpenStreetMap contributors (ODbL)</div>
   </div>
 </section>
+
+<section id="review" class="review" hidden>
+  <header class="rv-head">
+    <div><h2 id="rvTitle">Xem lại chuyến đi</h2><p id="rvSub"></p></div>
+    <button id="rvClose" class="rv-close" type="button">Để sau</button>
+  </header>
+  <div id="rvDeck" class="deck"><div id="rvTrack" class="track"></div></div>
+  <div id="rvDots" class="dots"></div>
+  <div id="rvDone" class="done" hidden></div>
+</section>
+
+<div id="qsScrim" class="qs-scrim"></div>
+<div id="qs" class="qs" aria-hidden="true">
+  <div class="grabber"></div>
+  <h3>Cùng quy tắc, cùng chuyến</h3>
+  <p id="qsLede"></p>
+  <div id="qsRows" class="qs-rows"></div>
+  <button id="qsDone" class="primary" type="button">Xong</button>
+</div>
 
 <script type="module" src="app.js"></script>
 </body>

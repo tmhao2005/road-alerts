@@ -1,0 +1,326 @@
+/* Reviewing reports once the car is parked: the end-of-trip panel, the waiting banner on
+   the start screen, one card per report and the trip summary. Built from style.css's
+   tokens, so a sign here is the same sign as on the drive screen. */
+
+:root {
+  /* A driver's answer is its own tier: not a sign the map has, not the statute. Purple so
+     it can never be mistaken for either. */
+  --rep-fg: #8944AB; --rep-bg: rgba(175, 82, 222, 0.13);
+  --map-bg: #ECEEF2; --map-street: #FFFFFF; --map-edge: #D3D7DE; --map-minor: #F7F8FA;
+  --map-trail: rgba(0, 122, 255, 0.4);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --rep-fg: #BF5AF2; --rep-bg: rgba(191, 90, 242, 0.18);
+    --map-bg: #15171B; --map-street: #34373E; --map-edge: #202328; --map-minor: #2A2C31;
+    --map-trail: rgba(64, 156, 255, 0.5);
+  }
+}
+:root[data-theme="dark"] {
+  --rep-fg: #BF5AF2; --rep-bg: rgba(191, 90, 242, 0.18);
+  --map-bg: #15171B; --map-street: #34373E; --map-edge: #202328; --map-minor: #2A2C31;
+  --map-trail: rgba(64, 156, 255, 0.5);
+}
+
+/* The sign in small, anywhere a number needs to look like what it is. */
+.mini-sign {
+  --s: 30px;
+  flex: none; display: inline-grid; place-items: center; width: var(--s); height: var(--s); border-radius: 50%;
+  background: #fff; border: calc(var(--s) * 0.13) solid var(--red);
+  font-size: calc(var(--s) * 0.36); font-weight: 800; color: #15161A; letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.mini-sign.unknown { border-color: #C9C7C1; background: #FAF9F7; color: #A9A7A1; }
+@keyframes pop { from { transform: scale(0.2); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* A few signs overlapping, like faces in a group chat: the numbers the app said where
+   the driver tapped. */
+.sign-stack { display: flex; flex: none; }
+.sign-stack .mini-sign { --s: 34px; box-shadow: 0 0 0 2.5px var(--card); animation: pop 0.55s var(--spring) both; }
+.sign-stack .mini-sign + .mini-sign { margin-left: -5px; }
+
+/* ---------- end of trip, in the drive panel ---------- */
+
+.panel.ended .gauge, .panel.ended .actions { display: none; }
+.trip-end { display: flex; flex-direction: column; gap: 16px; padding: 2px 0 0; }
+.trip-end:not([hidden]) { animation: swap-in 0.55s var(--spring) both; }
+.te-top { display: flex; align-items: center; gap: 14px; padding: 0 4px; }
+.te-top b { display: block; font-size: 24px; font-weight: 800; letter-spacing: -0.025em; }
+.te-top small { display: block; margin-top: 2px; font-size: 15px; font-weight: 500; color: var(--muted); }
+.te-actions { display: flex; gap: 10px; }
+.te-actions button { min-height: 58px; border: 0; border-radius: 18px; font-size: 18px; font-weight: 700; transition: transform 0.25s var(--spring); }
+.te-actions button:active { transform: scale(0.96); }
+.te-actions .te-open { flex: 1.6; background: var(--blue); color: #fff; }
+.te-actions .te-later { flex: 1; background: var(--unk-bg); color: var(--ink); }
+
+/* ---------- waiting on the start screen ---------- */
+
+.pending {
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+  padding: 14px 16px; border: 0; border-radius: 20px; background: var(--card); box-shadow: var(--shadow);
+  transition: transform 0.25s var(--spring);
+}
+.pending:not([hidden]) { animation: swap-in 0.55s var(--spring) both; }
+.pending:active { transform: scale(0.98); }
+.pending > div { flex: 1; min-width: 0; }
+.pending b { display: block; font-size: 17px; font-weight: 800; }
+.pending small { display: block; margin-top: 2px; font-size: 13.5px; font-weight: 500; color: var(--muted); }
+.pending > svg { flex: none; color: var(--faint); }
+
+/* ---------- review ---------- */
+
+.review {
+  position: fixed; inset: 0; z-index: 10; background: var(--bg);
+  overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+  padding: calc(env(safe-area-inset-top) + 12px) 0 calc(env(safe-area-inset-bottom) + 28px);
+}
+.review:not([hidden]) { animation: review-in 0.5s var(--spring) both; }
+@keyframes review-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.rv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; max-width: 460px; margin: 0 auto; padding: 8px 20px 14px; }
+.rv-head h2, .done-hero h2 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; }
+.rv-head p { margin: 3px 0 0; font-size: 14px; color: var(--muted); font-weight: 500; }
+.rv-close {
+  flex: none; border: 0; border-radius: 999px; padding: 8px 14px; margin-bottom: 2px;
+  background: var(--unk-bg); color: var(--ink); font-size: 15px; font-weight: 700;
+  transition: transform 0.25s var(--spring);
+}
+.rv-close:active { transform: scale(0.94); }
+
+/* Dots are buttons: a card can be reached without ever swiping. */
+.dots { display: flex; justify-content: center; gap: 2px; margin: 12px 0 0; }
+.dots button { border: 0; background: none; padding: 8px 4px; }
+.dots i { display: block; width: 7px; height: 7px; border-radius: 4px; background: var(--line); transition: width 0.45s var(--spring), background-color 0.3s ease; }
+.dots .done i { background: var(--rep-fg); }
+.dots .on i { width: 22px; background: var(--ink); }
+
+/* The deck runs sideways, and the next card's edge shows at the right: an edge you can
+   see is the plainest way to say there is more to the side. */
+.deck { --gap: 12px; --peek: 22px; overflow: hidden; touch-action: pan-y; }
+.track {
+  display: flex; align-items: flex-start; gap: var(--gap);
+  padding: 0 calc(var(--peek) + var(--gap)); will-change: transform;
+}
+@media (min-width: 520px) { .deck { --peek: calc((100vw - 440px) / 2 - 12px); } }
+.rcard {
+  position: relative; flex: none; width: calc(100vw - 2 * (var(--peek) + var(--gap)));
+  border-radius: 28px; background: var(--card); box-shadow: var(--shadow); overflow: hidden;
+  transition: opacity 0.4s ease, transform 0.5s var(--spring);
+}
+.rcard:not(.on) { opacity: 0.55; transform: scale(0.96); }
+.rcard:not(.on) .rc-body { pointer-events: none; }
+
+.rc-map { position: relative; aspect-ratio: 360 / 210; background: var(--map-bg); overflow: hidden; }
+.rc-map > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.rc-map .stretch { transition: stroke 0.5s ease; }
+.rc-map .stretch.law { stroke: var(--law-fg); }
+.rc-map .stretch.sign { stroke: var(--sign-fg); }
+.rc-map .stretch.rep { stroke: var(--rep-fg); }
+.rc-map .stretch.none { stroke: var(--unk-fg); }
+.rc-map .loading { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: var(--faint); font-weight: 600; }
+
+.rc-tap { position: absolute; transform: translate(-50%, -50%); pointer-events: none; }
+.rc-tap i { display: block; width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--ink); background: var(--card); }
+.rc-tap span {
+  position: absolute; left: 50%; top: 18px; transform: translateX(-50%); white-space: nowrap;
+  font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: var(--card); color: var(--ink);
+  box-shadow: 0 1px 3px rgba(16, 20, 30, 0.15);
+}
+
+/* The sign on its pole, standing on the right shoulder like the ones on the drive screen.
+   Dragging it along the road is how a driver says where it really stands. */
+.map-sign { position: absolute; width: 0; height: 0; touch-action: none; cursor: grab; z-index: 3; }
+.map-sign:active { cursor: grabbing; }
+.map-sign .stand { position: absolute; left: 0; bottom: 0; transform-origin: 50% 100%; perspective: 300px; transition: transform 0.45s var(--spring); }
+.map-sign.pop .stand { animation: stand-up 0.7s var(--spring) both; }
+@keyframes stand-up { from { transform: translateY(6px) scale(0.2); opacity: 0; } to { transform: none; opacity: 1; } }
+.map-sign.lift .stand { transform: translateY(-6px) scale(1.12); transition: transform 0.35s var(--spring); }
+.map-sign .pole { position: absolute; left: -1.5px; bottom: 0; width: 3px; height: 16px; border-radius: 2px; background: var(--unk-fg); }
+.map-sign .base { position: absolute; left: -5px; bottom: -3px; width: 10px; height: 5px; border-radius: 50%; background: rgba(0, 0, 0, 0.18); }
+/* No filter here: a filter flattens preserve-3d, and the back face would never show. */
+.map-sign .flip {
+  position: absolute; left: -19px; bottom: 14px; width: 38px; height: 38px;
+  transform-style: preserve-3d; transition: transform 0.8s var(--spring);
+}
+.map-sign .flip.over { transform: rotateY(180deg); }
+.map-sign .face {
+  position: absolute; inset: 0; display: grid; place-items: center; border-radius: 50%;
+  background: #fff; border: 5px solid var(--red); color: #15161A;
+  font-size: 14px; font-weight: 800; letter-spacing: -0.04em; font-variant-numeric: tabular-nums;
+  box-shadow: 0 3px 8px rgba(16, 20, 30, 0.25);
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+}
+.map-sign .face.back { transform: rotateY(180deg); }
+.map-sign .face.unknown { border-color: #C9C7C1; background: #FAF9F7; color: #A9A7A1; }
+/* The grab target is bigger than the sign: a thumb on a map should not have to aim. */
+.map-sign .hit { position: absolute; left: -30px; bottom: -14px; width: 60px; height: 84px; }
+
+.map-pill {
+  position: absolute; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--glass); color: var(--ink); border: 0.5px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 1px 3px rgba(16, 20, 30, 0.12);
+}
+.rc-time { cursor: pointer; }
+.rc-time svg { opacity: 0.6; }
+.rc-dist { top: 46px; }
+.rc-dist:not([hidden]) { animation: pill-in 0.35s var(--spring) both; }
+
+.rc-body { padding: 16px 18px 18px; }
+.rc-road b { display: block; font-size: 21px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.15; }
+.rc-road span { display: block; margin-top: 2px; font-size: 14px; color: var(--muted); font-weight: 500; }
+
+.rc-rows { margin-top: 14px; border-radius: 16px; background: var(--bg); overflow: hidden; }
+.rc-row { display: flex; align-items: center; gap: 12px; padding: 11px 12px; }
+.rc-row + .rc-row { border-top: 0.5px solid var(--line); }
+.rc-row > div { flex: 1; min-width: 0; }
+.rc-row b { display: block; font-size: 15px; font-weight: 700; }
+.rc-row small { display: block; margin-top: 1px; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.rc-row .tier { font-size: 12px; padding: 4px 10px; }
+.tier.rep { background: var(--rep-bg); color: var(--rep-fg); }
+.rc-yours:not([hidden]) { animation: swap-in 0.5s var(--spring) both; }
+
+.rc-q { margin: 18px 2px 12px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+.picker { display: flex; flex-direction: column; gap: 14px; }
+.pk-top { display: flex; gap: 10px; }
+.pk-top:empty { display: none; }
+.pk-rest { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.pk-text { display: flex; gap: 8px; }
+.pick {
+  border: 0; background: none; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 7px;
+  transition: opacity 0.3s ease;
+}
+.pk-top .pick {
+  flex: 1; padding: 14px 8px 11px; border-radius: 20px; background: var(--bg);
+  transition: opacity 0.3s ease, background-color 0.3s ease, transform 0.3s var(--spring);
+}
+.pk-top .pick:active { transform: scale(0.97); }
+.pick .mini-sign { transition: transform 0.55s var(--spring), box-shadow 0.3s ease; }
+.pk-top .mini-sign { --s: 64px; }
+.pk-rest .mini-sign { --s: 44px; }
+.pick small { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1.25; text-align: center; }
+.picker.chosen .pick:not(.on) { opacity: 0.42; }
+.pick.on .mini-sign { transform: scale(1.1); box-shadow: 0 6px 16px rgba(16, 20, 30, 0.22); }
+.pk-top .pick.on { background: var(--rep-bg); }
+.pk-text button {
+  flex: 1; min-height: 44px; border: 0; border-radius: 14px; background: var(--bg);
+  font-size: 15px; font-weight: 600; transition: opacity 0.3s ease, background-color 0.3s ease, color 0.3s ease, transform 0.3s var(--spring);
+}
+.pk-text button:active { transform: scale(0.97); }
+.picker.chosen .pk-text button:not(.on) { opacity: 0.6; }
+.pk-text button.on { background: var(--rep-bg); color: var(--rep-fg); }
+
+.why { margin-top: 16px; padding: 14px 14px 12px; border-radius: 18px; background: var(--bg); }
+.why:not([hidden]) { animation: swap-in 0.55s var(--spring) both; }
+.why h4 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -0.015em; line-height: 1.3; }
+.facts { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.fact { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--card); }
+.fact .f-l { font-size: 12px; font-weight: 700; color: var(--faint); text-transform: uppercase; letter-spacing: 0.04em; min-width: 56px; }
+.fact .f-v { font-size: 14px; font-weight: 600; }
+.fact .f-n { display: flex; align-items: center; gap: 6px; }
+.fact .mini-sign { --s: 28px; }
+.fact.no .f-v { color: var(--muted); }
+.fact.strike .f-v { text-decoration: line-through; text-decoration-color: var(--faint); }
+.fact.no .mini-sign { opacity: 0.45; }
+.fact.ok .check { color: var(--sign-fg); }
+.fact:nth-child(2) { animation: swap-in 0.5s var(--spring) 0.12s both; }
+.why p { margin: 10px 2px 0; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+.boundary {
+  margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 700; background: var(--rep-bg); color: var(--rep-fg);
+}
+.boundary:not([hidden]) { animation: pill-in 0.4s var(--spring) both; }
+.similar {
+  margin-top: 12px; width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;
+  border: 0; border-radius: 14px; padding: 11px 12px; background: var(--card); font-size: 14px; line-height: 1.35;
+  transition: transform 0.25s var(--spring);
+}
+.similar:active { transform: scale(0.98); }
+.similar > span { flex: 1; }
+.similar .go { flex: none; color: var(--blue); font-weight: 700; }
+.similar svg { flex: none; color: var(--rep-fg); }
+
+.rc-actions { margin-top: 18px; display: flex; gap: 10px; }
+.rc-actions .primary { flex: 1; min-height: 52px; font-size: 17px; border-radius: 16px; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.ghost {
+  flex: none; padding: 0 16px; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 52px;
+  border-radius: 16px; background: var(--bg); color: var(--blue); font-size: 15px; font-weight: 700; text-decoration: none;
+  transition: transform 0.25s var(--spring);
+}
+.ghost:active { transform: scale(0.97); }
+.ghost.hint { animation: nudge 0.9s var(--spring) 0.2s both; }
+@keyframes nudge { 0% { transform: none; } 30% { transform: scale(1.06); } 100% { transform: none; } }
+
+/* ---------- the "same rule, same trip" sheet ---------- */
+
+.qs-scrim { position: fixed; z-index: 30; inset: 0; background: rgba(0, 0, 0, 0.25); opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+.qs-scrim.open { opacity: 1; pointer-events: auto; }
+.qs {
+  position: fixed; z-index: 31; left: 0; right: 0; bottom: 0; max-width: 480px; margin: 0 auto;
+  padding: 10px 18px calc(env(safe-area-inset-bottom) + 18px); border-radius: 30px 30px 0 0;
+  background: var(--card); box-shadow: var(--shadow);
+  transform: translateY(105%); transition: transform 0.5s var(--spring);
+}
+.qs.open { transform: none; }
+.qs h3 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.qs > p { margin: 4px 0 14px; font-size: 14px; color: var(--muted); line-height: 1.4; }
+.qs-rows { border-radius: 16px; background: var(--bg); overflow: hidden; max-height: 50vh; overflow-y: auto; }
+.qs-row { display: flex; align-items: center; gap: 12px; padding: 11px 12px; }
+.qs-row + .qs-row { border-top: 0.5px solid var(--line); }
+.qs-row > div:first-child { flex: 1; min-width: 0; }
+.qs-row b { display: block; font-size: 15px; font-weight: 700; }
+.qs-row small { display: block; font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+.qs-seg { display: flex; gap: 6px; }
+.qs-seg button {
+  min-width: 46px; height: 42px; border: 0; border-radius: 12px; background: var(--card); padding: 0 8px;
+  display: grid; place-items: center; font-size: 14px; font-weight: 700; color: var(--muted);
+  transition: background-color 0.25s ease, color 0.25s ease, transform 0.3s var(--spring);
+}
+.qs-seg button:active { transform: scale(0.94); }
+.qs-seg .mini-sign { --s: 28px; }
+.qs-seg button.on { background: var(--rep-bg); color: var(--rep-fg); }
+.qs-seg button.on .mini-sign { animation: pop 0.5s var(--spring) both; }
+.qs .primary { width: 100%; margin-top: 16px; }
+
+/* ---------- summary ---------- */
+
+.done { max-width: 460px; margin: 0 auto; padding: 0 16px; }
+.done-hero { text-align: center; padding: 18px 0 4px; }
+.done-check { width: 64px; height: 64px; margin: 0 auto 12px; color: var(--rep-fg); }
+.done-check svg { width: 100%; height: 100%; animation: pop 0.7s var(--spring) both; }
+.done-check circle { fill: var(--rep-bg); stroke: none; }
+.done-check path { fill: none; stroke: currentColor; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40; animation: draw 0.6s cubic-bezier(0.3, 0.7, 0.2, 1) 0.25s forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.done-hero p { margin: 4px 0 0; font-size: 15px; color: var(--muted); font-weight: 500; }
+.done-hero .thanks { margin-top: 10px; font-size: 17px; color: var(--ink); font-weight: 700; }
+
+.trip { margin-top: 18px; border-radius: 24px; overflow: hidden; background: var(--card); box-shadow: var(--shadow); }
+.trip .rc-map { aspect-ratio: 360 / 190; }
+.trip-mark { position: absolute; transform: translate(-50%, -50%); animation: pop 0.6s var(--spring) both; }
+.trip-mark .mini-sign { --s: 32px; box-shadow: 0 3px 8px rgba(16, 20, 30, 0.25); }
+.trip-mark .q { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--card); color: var(--muted); font-size: 13px; font-weight: 800; box-shadow: 0 2px 6px rgba(16, 20, 30, 0.2); }
+
+.stats { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stat { padding: 14px 14px 12px; border-radius: 20px; background: var(--card); box-shadow: 0 1px 2px rgba(16, 20, 30, 0.06); animation: swap-in 0.55s var(--spring) both; }
+.stat b { display: block; font-size: 34px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat b small { font-size: 16px; font-weight: 700; letter-spacing: 0; margin-left: 3px; color: var(--muted); }
+.stat span { display: block; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.3; }
+.stat.rep b { color: var(--rep-fg); }
+
+.found {
+  margin-top: 10px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 20px;
+  background: var(--card); box-shadow: 0 1px 2px rgba(16, 20, 30, 0.06); animation: swap-in 0.55s var(--spring) 0.3s both;
+}
+.found-icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--rep-bg); color: var(--rep-fg); }
+.found b { display: block; font-size: 16px; font-weight: 800; }
+.found small { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); line-height: 1.35; }
+.honest { margin-top: 14px; display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 16px; background: var(--rep-bg); }
+.honest .tier { flex: none; background: var(--card); color: var(--rep-fg); font-size: 12px; }
+.honest p { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--ink); }
+.done > .primary { width: 100%; margin-top: 18px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.done .link-btn { display: block; margin: 10px auto 0; border: 0; background: none; color: var(--blue); font-size: 15px; font-weight: 600; padding: 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .review *, .review *::before, .review *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

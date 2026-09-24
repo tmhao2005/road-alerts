@@ -26,3 +26,7 @@ done
 if [ ! -f site/tiles/index.json ] || [ data/hcm-index.json -nt site/tiles/index.json ]; then
   node tools/build-tiles.js data/hcm-index.json site/tiles
 fi
+# A made-up trip on those tiles, for ?mock: the review, without driving.
+if [ ! -f site/mock/trip.json ] || [ site/tiles/index.json -nt site/mock/trip.json ] || [ tools/mock-trip.js -nt site/mock/trip.json ]; then
+  node tools/mock-trip.js site/tiles site/mock/trip.json
+fi
