@@ -11,7 +11,7 @@
 <link rel="icon" href="icon-192.png">
 <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-<title>Tốc độ — bản thử</title>
+<title>Tốc độ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -20,73 +20,62 @@
 </head>
 <body>
 
-<section id="start" class="screen">
-  <div class="start-inner">
-    <div class="app-mark" aria-hidden="true">60</div>
-    <h1>Tốc độ tối đa</h1>
-    <p class="lede">Bản thử cho một chuyến đi. Người ngồi cạnh cầm máy — tài xế không chạm vào điện thoại.</p>
-
-    <button id="pending" class="pending" type="button" hidden></button>
-
-    <label class="field">
-      <span>Loại xe</span>
-      <select id="vehicle"></select>
-    </label>
-
-    <button id="go" class="primary" type="button">Bắt đầu</button>
-
-    <div class="demos">
-      <h2>Xem thử, không cần lái</h2>
-      <div id="demos"></div>
-    </div>
-
-    <ul class="notes">
-      <li>Thêm vào Màn hình chính để mở như một ứng dụng.</li>
-      <li>Giữ màn hình sáng và app ở phía trước suốt chuyến đi.</li>
-      <li>Khi app sai, bấm <b>Sai</b> — chỉ vậy thôi. Xong chuyến, app hỏi lại từng chỗ.</li>
-    </ul>
-  </div>
-</section>
-
-<section id="drive" class="drive" hidden>
+<section id="app" class="app">
   <canvas id="scene" class="scene"></canvas>
 
-  <header class="road-card">
-    <div id="roadName" class="road-name">Đang tìm đường…</div>
-    <div id="roadMeta" class="road-meta"></div>
-  </header>
-  <div id="demoTag" class="demo-tag" hidden>Mô phỏng</div>
-  <div id="hint" class="hint" hidden>Dừng xe để xem bản đồ</div>
+  <div class="top">
+    <header id="card" class="road-card">
+      <div class="rc-text">
+        <div id="roadName" class="road-name">Đang tìm vị trí…</div>
+        <div id="roadMeta" class="road-meta"></div>
+      </div>
+      <span id="here" class="mini-sign here unknown">–</span>
+    </header>
+    <div id="install" class="install" hidden>
+      <span class="ic"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14V3M7.5 7.5 12 3l4.5 4.5"/><path d="M6 11v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-8"/></svg></span>
+      <div><b>Thêm vào Màn hình chính</b><small>Bấm Chia sẻ, rồi Thêm vào MH chính. Mở như một ứng dụng, không còn thanh Safari.</small></div>
+      <button id="installX" class="x" type="button" aria-label="Đóng"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div id="demoTag" class="demo-tag" hidden>Mô phỏng</div>
+    <button id="voicePill" class="pill voice-pill" type="button" hidden></button>
+    <div id="hint" class="pill" hidden>Dừng xe để xem bản đồ</div>
+    <div id="toast" class="pill" hidden></div>
+  </div>
 
-  <div id="panel" class="panel">
+  <div class="dock">
     <button id="recenter" class="recenter" type="button" hidden>
       <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M20.5 3.5 3.8 10.4c-.8.3-.7 1.5.2 1.7l6.6 1.3 1.3 6.6c.2.9 1.4 1 1.7.2Z" fill="currentColor"/></svg>
       Về vị trí
     </button>
-    <div class="gauge">
-      <div class="speed">
-        <div id="speed" class="speed-num">–</div>
-        <div class="speed-unit">km/h</div>
+    <div id="panel" class="panel">
+      <div id="homeBody" class="body home-body">
+        <button id="pending" class="pending" type="button" hidden></button>
+        <div id="greet" class="greet">Đi xe gì?</div>
+        <div class="tiles">
+          <button id="tile0" class="tile" type="button"></button>
+          <button id="tile1" class="tile" type="button"></button>
+          <button id="homeMore" class="tile more-tile" type="button" aria-label="Cài đặt">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+          </button>
+        </div>
       </div>
-      <div class="badge">
-        <div id="sign" class="sign unknown"><span class="num">–</span></div>
-        <div id="tier" class="tier">Đang tải</div>
-      </div>
-    </div>
-    <div class="actions">
-      <button id="wrong" class="wrong" type="button"><span>Sai<small>Ghi lại chỗ này</small></span></button>
-      <button id="more" class="more" type="button" aria-label="Chi tiết">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>
-      </button>
-    </div>
-    <div id="tripEnd" class="trip-end" hidden>
-      <div class="te-top">
-        <div id="teSigns" class="sign-stack"></div>
-        <div><b>Chuyến đi xong</b><small id="teSub"></small></div>
-      </div>
-      <div class="te-actions">
-        <button id="teLater" class="te-later" type="button">Để sau</button>
-        <button id="teOpen" class="te-open" type="button">Xem lại</button>
+      <div id="driveBody" class="body drive-body" hidden>
+        <div class="gauge">
+          <div class="speed">
+            <div id="speed" class="speed-num">–</div>
+            <div id="unit" class="speed-unit">km/h</div>
+          </div>
+          <div class="badge">
+            <div id="sign" class="sign unknown"><span class="num">–</span></div>
+            <div id="tier" class="tier">Đang tải</div>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="wrong" class="wrong" type="button"><span>Sai<small id="wrongSmall">Ghi lại chỗ này</small></span></button>
+          <button id="more" class="more" type="button" aria-label="Chi tiết">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -98,6 +87,7 @@
     <div id="zone" class="zone"></div>
     <div id="reason" class="reason"></div>
     <div class="rows">
+      <div class="row"><span>Xe</span><span id="vehicleRow">–</span></div>
       <div class="row"><span>GPS</span><span id="gps">đang chờ</span></div>
       <div class="row"><span>Tốc độ lấy từ</span><span id="speedSrc">–</span></div>
       <div class="row"><span>Đã báo sai</span><span id="count">0 lần</span></div>
@@ -108,6 +98,18 @@
       <button id="stop" class="stop" type="button">Dừng</button>
     </div>
     <div class="attrib">Dữ liệu bản đồ © OpenStreetMap contributors (ODbL)</div>
+  </div>
+  <div id="settings" class="sheet" aria-hidden="true">
+    <div class="grabber"></div>
+    <h4>Cài đặt</h4>
+    <h3>Xem thử, không cần lái</h3>
+    <div id="demos" class="group"></div>
+    <h3>Nhật ký</h3>
+    <div class="group">
+      <button id="exportAll" class="cell" type="button"><span class="grow act-blue">Xuất nhật ký</span></button>
+      <button id="clear" class="cell" type="button"><span class="grow"><b>Xoá nhật ký</b></span><span id="logCount" class="val"></span></button>
+    </div>
+    <div id="builtNote" class="attrib">Dữ liệu bản đồ © OpenStreetMap contributors (ODbL)</div>
   </div>
 </section>
 

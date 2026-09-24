@@ -1,6 +1,7 @@
 :root {
   --bg: #F2F2F7;
   --card: #FFFFFF;
+  --well: #F2F2F7;
   --ink: #111114;
   --muted: #6B6D76;
   --faint: #8A8C94;
@@ -20,7 +21,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #000000; --card: #1C1C1E; --ink: #FFFFFF; --muted: #98989D; --faint: #8A8A8E; --line: #2C2C2E;
+    --bg: #000000; --card: #1C1C1E; --well: #2C2C2E; --ink: #FFFFFF; --muted: #98989D; --faint: #8A8A8E; --line: #2C2C2E;
     --glass: rgba(30, 30, 32, 0.72); --glass-edge: rgba(255, 255, 255, 0.08);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
     --blue: #0A84FF;
@@ -32,7 +33,7 @@
   }
 }
 :root[data-theme="dark"] {
-  --bg: #000000; --card: #1C1C1E; --ink: #FFFFFF; --muted: #98989D; --faint: #8A8A8E; --line: #2C2C2E;
+  --bg: #000000; --card: #1C1C1E; --well: #2C2C2E; --ink: #FFFFFF; --muted: #98989D; --faint: #8A8A8E; --line: #2C2C2E;
   --glass: rgba(30, 30, 32, 0.72); --glass-edge: rgba(255, 255, 255, 0.08);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
   --blue: #0A84FF;
@@ -55,85 +56,112 @@ body {
 [hidden] { display: none !important; }
 button { font: inherit; color: inherit; cursor: pointer; }
 
-/* ---------- start ---------- */
-
-.screen {
-  min-height: 100%;
-  padding: calc(env(safe-area-inset-top) + 20px) 20px calc(env(safe-area-inset-bottom) + 16px);
-  display: flex; flex-direction: column;
-}
-.start-inner { display: flex; flex-direction: column; gap: 18px; max-width: 420px; width: 100%; margin: auto auto; }
-h1 { margin: 0; font-size: 34px; font-weight: 800; letter-spacing: -0.03em; }
-.lede { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.45; }
-.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-select {
-  font: inherit; font-size: 17px; color: var(--ink); background: var(--card); text-transform: none; letter-spacing: 0;
-  border: 0; border-radius: 12px; padding: 14px 14px;
-  -webkit-appearance: none; appearance: none; box-shadow: var(--shadow);
-}
 .primary {
   font-size: 18px; font-weight: 700; color: #fff; background: var(--blue);
   border: 0; border-radius: 16px; padding: 16px; min-height: 56px;
   transition: transform 0.2s var(--spring);
 }
 .primary:active { transform: scale(0.97); }
-.notes { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }
-.link { font-size: 14px; color: var(--blue); background: none; border: 0; padding: 8px 0; text-align: left; }
-.demos { display: flex; flex-direction: column; gap: 8px; }
-.demos h2 { margin: 6px 0 2px; font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-.app-mark {
-  width: 64px; height: 64px; border-radius: 50%; background: #fff; border: 8px solid var(--red);
-  display: grid; place-items: center; font-size: 22px; font-weight: 800; letter-spacing: -0.04em; color: #15161A;
-  box-shadow: 0 8px 20px rgba(16, 20, 30, 0.12);
-}
-#demos { display: flex; flex-direction: column; gap: 8px; }
-.demo {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: var(--card); border: 0; border-radius: 14px; padding: 10px 16px; min-height: 58px;
-  text-align: left; box-shadow: 0 1px 2px rgba(16, 20, 30, 0.06);
-  transition: transform 0.25s var(--spring);
-}
-.demo:active { transform: scale(0.98); }
-.demo b { display: block; font-size: 16px; font-weight: 700; }
-.demo small { display: block; margin-top: 2px; font-size: 13px; font-weight: 500; color: var(--muted); }
-.demo svg { flex: none; color: var(--faint); }
 
-/* ---------- drive ---------- */
+/* ---------- the one screen: a map of where the car is, parked or driving ---------- */
 
-.drive { position: fixed; inset: 0; overflow: hidden; background: var(--bg); }
+.app { position: fixed; inset: 0; overflow: hidden; background: var(--bg); }
 .scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-/* The page never zooms or scrolls while driving; the road view handles its own fingers. */
-.drive { touch-action: none; }
+/* The page never zooms or scrolls; the road view handles its own fingers. */
+.app { touch-action: none; }
 
-.road-card {
+/* Everything that hangs from the top: where the car is, then any notice. */
+.top {
   position: absolute; left: 12px; right: 12px; top: calc(env(safe-area-inset-top) + 10px);
-  padding: 14px 18px 13px; border-radius: 24px;
+  display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+}
+.top > * { pointer-events: auto; }
+.road-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 14px 13px 18px; border-radius: 24px;
   background: var(--glass); border: 0.5px solid var(--glass-edge);
   -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--shadow);
 }
+.rc-text { flex: 1; min-width: 0; }
 .road-name {
   font-size: 25px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.12;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .road-meta { margin-top: 3px; font-size: 14px; color: var(--muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.road-card .swap-in { animation: swap-in 0.5s var(--spring) both; }
+.road-meta .t { font-weight: 700; }
+.t.law { color: var(--law-fg); } .t.sign { color: var(--sign-fg); } .t.unk { color: var(--unk-fg); }
+.swap-in { animation: swap-in 0.5s var(--spring) both; }
 @keyframes swap-in { from { transform: translateY(10px); opacity: 0; filter: blur(4px); } to { transform: none; opacity: 1; filter: none; } }
+/* Parked, the limit where the car stands, in small. Driving, the badge has it. */
+.here { --s: 46px; transition: transform 0.45s var(--spring), opacity 0.3s ease; }
+.road-card.driving .here { transform: scale(0.3); opacity: 0; }
+
+.install {
+  display: flex; align-items: center; gap: 12px; padding: 11px 11px 11px 12px; border-radius: 20px;
+  background: var(--glass); border: 0.5px solid var(--glass-edge); box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+}
+.install:not([hidden]) { animation: swap-in 0.5s var(--spring) both; }
+.install .ic { flex: none; width: 38px; height: 38px; border-radius: 11px; background: var(--blue); color: #fff; display: grid; place-items: center; }
+.install > div { flex: 1; min-width: 0; }
+.install b { display: block; font-size: 15px; font-weight: 800; }
+.install small { display: block; margin-top: 1px; font-size: 12.5px; line-height: 1.35; color: var(--muted); font-weight: 500; }
+.install .x { flex: none; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--well); color: var(--muted); display: grid; place-items: center; }
 
 .demo-tag {
-  position: absolute; top: calc(env(safe-area-inset-top) + 100px); left: 50%; transform: translateX(-50%);
+  align-self: center;
   font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--muted); background: var(--glass); padding: 5px 11px; border-radius: 999px;
   -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
 }
+.pill {
+  align-self: center; display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border: 0; border-radius: 999px;
+  background: rgba(28, 28, 30, 0.86); color: #fff; font-size: 14px; font-weight: 600; white-space: nowrap;
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+}
+.pill:not([hidden]) { animation: pill-in 0.35s var(--spring) both; }
+@keyframes pill-in { from { transform: translateY(8px) scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
+/* Driving with the voice still locked: the one tap it needs, asked for where it is seen. */
+.voice-pill { background: var(--blue); font-size: 15px; font-weight: 700; padding: 11px 18px; box-shadow: 0 8px 24px -8px rgba(0, 90, 200, 0.6); }
+.voice-pill:not([hidden]) { animation: pill-in 0.45s var(--spring) both, breathe 2.2s ease-in-out 0.6s infinite; }
+.voice-pill.done { background: rgba(28, 28, 30, 0.86); box-shadow: none; animation: none; }
+@keyframes breathe { 50% { transform: scale(1.045); } }
 
-.panel {
+/* ---------- the panel: home parked, gauge driving ---------- */
+
+.dock {
   position: absolute; left: 10px; right: 10px; bottom: calc(env(safe-area-inset-bottom) + 10px);
-  padding: 18px 18px 14px; border-radius: 32px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+}
+.panel {
+  position: relative; align-self: stretch; overflow: hidden;
+  padding: 16px 16px 14px; border-radius: 32px;
   background: var(--card); box-shadow: var(--shadow);
   transition: background-color 0.4s ease;
 }
 .panel.over { background: color-mix(in srgb, var(--card) 88%, var(--over)); }
+/* The side leaving stays where it was while it fades, so the panel sizes to what is coming. */
+.body.leaving { position: absolute; left: 16px; right: 16px; top: 16px; pointer-events: none; }
+.home-body { display: flex; flex-direction: column; gap: 12px; }
+
+.greet { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; padding: 2px 4px 0; }
+.tiles { display: flex; gap: 10px; }
+/* Picking the vehicle is starting the drive. The one driven last is filled. */
+.tile {
+  position: relative; flex: 1; min-width: 0; height: 92px; border: 0; border-radius: 22px; padding: 12px 14px;
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; text-align: left;
+  background: var(--unk-bg); color: var(--ink);
+  transition: transform 0.25s var(--spring), background-color 0.35s ease, color 0.35s ease, box-shadow 0.35s ease;
+}
+.tile:active { transform: scale(0.95); }
+.tile.last { background: var(--blue); color: #fff; box-shadow: 0 10px 22px -10px rgba(0, 100, 230, 0.7); }
+.tile .tg svg { width: 32px; height: 32px; display: block; }
+.tile .was { position: absolute; top: 12px; right: 11px; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.22); }
+.tile .tl { display: block; width: 100%; }
+.tile b { display: block; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile small { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 600; opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile.more-tile { flex: none; width: 58px; padding: 0; align-items: center; justify-content: center; }
 
 .gauge { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .speed { display: flex; flex-direction: column; padding-left: 4px; }
@@ -189,38 +217,31 @@ select {
 }
 .more:active { transform: scale(0.92); }
 
+/* A sign on its way somewhere: from the shoulder or the card into the badge, and back. */
 .ghost-sign {
-  position: fixed; z-index: 5; border-radius: 50%; background: #fff; border-style: solid; border-color: var(--red);
+  position: absolute; z-index: 5; border-radius: 50%; background: #fff; border: 13px solid var(--red);
   display: grid; place-items: center; pointer-events: none;
-  font-weight: 800; color: #15161A; letter-spacing: -0.04em;
+  font-size: 40px; font-weight: 800; color: #15161A; letter-spacing: -0.04em; font-variant-numeric: tabular-nums;
 }
+.ghost-sign.unknown { border-color: #C9C7C1; background: #FAF9F7; color: #A9A7A1; }
 
 /* Shown only while the view has been moved by hand, which only happens standing still. */
 .recenter {
-  position: absolute; right: 6px; top: -54px; height: 42px; padding: 0 16px 0 13px;
+  height: 42px; padding: 0 16px 0 13px;
   display: flex; align-items: center; gap: 7px; border: 0.5px solid var(--glass-edge); border-radius: 999px;
   background: var(--glass); color: var(--blue); font-size: 15px; font-weight: 700;
   -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--shadow);
 }
 .recenter:not([hidden]) { animation: pill-in 0.45s var(--spring) both; }
-@keyframes pill-in { from { transform: translateY(8px) scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
 .recenter:active { transform: scale(0.95); }
-/* Up under the road card, clear of the car and the road just ahead of it. */
-.hint {
-  position: absolute; left: 0; right: 0; top: calc(env(safe-area-inset-top) + 142px); width: max-content; margin: 0 auto;
-  padding: 9px 16px; border-radius: 999px; white-space: nowrap;
-  background: rgba(28, 28, 30, 0.86); color: #fff; font-size: 14px; font-weight: 600;
-  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
-}
-.hint:not([hidden]) { animation: pill-in 0.35s var(--spring) both; }
 
-/* ---------- details sheet ---------- */
+/* ---------- sheets ---------- */
 
 .sheet-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.2); opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
 .sheet-scrim.open { opacity: 1; pointer-events: auto; }
 .sheet {
-  position: absolute; left: 0; right: 0; bottom: 0;
+  position: absolute; left: 0; right: 0; bottom: 0; max-height: 88%; overflow-y: auto; overscroll-behavior: contain;
   padding: 10px 20px calc(env(safe-area-inset-bottom) + 18px);
   border-radius: 30px 30px 0 0; background: var(--card); box-shadow: var(--shadow);
   transform: translateY(105%); transition: transform 0.5s var(--spring);
@@ -228,6 +249,9 @@ select {
 .sheet.open { transform: none; }
 .grabber { width: 38px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto 14px; }
 .sheet h3 { margin: 0 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.sheet h4 { margin: 0 0 14px; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+.sheet .group + h3 { margin-top: 20px; }
+.sheet h3 + .group { margin-top: 7px; }
 .sheet .zone { font-size: 17px; font-weight: 700; }
 .sheet .reason { margin-top: 3px; font-size: 14px; color: var(--muted); line-height: 1.4; }
 .rows { margin-top: 16px; border-radius: 14px; background: var(--bg); overflow: hidden; }
@@ -240,15 +264,27 @@ select {
   background: var(--bg); color: var(--blue);
 }
 .sheet-actions .stop { color: var(--ink); }
+.group { border-radius: 14px; background: var(--bg); overflow: hidden; }
+.cell { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 9px 14px; border: 0; background: none; text-align: left; }
+.cell + .cell { border-top: 0.5px solid var(--line); }
+.cell:active { background: var(--line); }
+.cell .grow { flex: 1; min-width: 0; }
+.cell b { display: block; font-size: 16px; font-weight: 600; }
+.cell small { display: block; margin-top: 1px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell .val { flex: none; font-size: 14px; color: var(--muted); }
+.cell .act-blue { font-size: 16px; font-weight: 600; color: var(--blue); }
+.cell > svg { flex: none; color: var(--faint); }
 .attrib { margin-top: 12px; font-size: 11px; color: var(--faint); text-align: center; }
 
 /* Landscape on a dashboard mount: the road gets the wide side, the numbers a column. */
 @media (orientation: landscape) and (max-height: 520px) {
-  .road-card { right: auto; width: calc(58% - 18px); top: calc(env(safe-area-inset-top) + 10px); left: calc(env(safe-area-inset-left) + 10px); padding: 10px 16px; }
+  .top { right: auto; width: calc(58% - 18px); left: calc(env(safe-area-inset-left) + 10px); }
+  .road-card { padding: 10px 14px 10px 16px; }
   .road-name { font-size: 21px; }
-  .panel { left: auto; top: 10px; bottom: 10px; right: calc(env(safe-area-inset-right) + 10px); width: 40%; display: flex; flex-direction: column; justify-content: space-between; }
+  .dock { left: auto; top: 10px; bottom: 10px; right: calc(env(safe-area-inset-right) + 10px); width: 40%; }
+  .panel { flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
   .gauge { flex: 1; }
   .speed-num { font-size: 84px; }
   /* The panel is full height here, so the way back sits beside it, over the map. */
-  .recenter { top: auto; bottom: 4px; right: calc(100% + 10px); white-space: nowrap; }
+  .recenter { position: absolute; bottom: 4px; right: calc(100% + 10px); white-space: nowrap; }
 }

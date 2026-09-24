@@ -6,10 +6,12 @@ A Vietnamese driving companion that tells you the legal speed limit on any road,
 and on a glanceable screen, and gets more accurate every trip as drivers correct it.
 
 **Status: early.** The data feasibility spike has run, the speed law has been read at
-source, and the core speed function exists with a coordinate tester for TP.HCM. The iPhone
-test app has its driving screen: a forward road view drawn from the map, the limit, lights
-ahead and voice, installable from the home screen and working offline once its tiles are
-loaded. The next piece of work is the test drive (see [Next steps](#next-steps)).
+source, and the core speed function exists with a coordinate tester for TP.HCM. The web
+app is the product for now, used by the household from the iPhone home screen: it opens on
+a map of where the car is, turns into a forward road view with the limit, lights ahead and
+voice when the car drives off, and works offline once its tiles are loaded. The next piece
+of work is making a driver's answers to Sai correct their own phone (see
+[Next steps](#next-steps)).
 
 ---
 
@@ -39,11 +41,11 @@ npm run site     # the page, plus map tiles when the map data is newer than them
 npm run serve    # prints the localhost and LAN addresses
 ```
 
-On the start screen, the "Xem thử, không cần lái" drives run a pretend car along real
-roads, one fix a second like a phone's GPS, through the same matching, law and drawing as a
-real drive. Real GPS needs https, so a real drive uses the GitHub Pages link, which every
-push to `main` redeploys. In Safari, Share → Add to Home Screen turns it into an app with
-its own icon.
+Under ⋯ on the home screen, the "Xem thử, không cần lái" drives run a pretend car along
+real roads, one fix a second like a phone's GPS, through the same matching, law and drawing
+as a real drive; `?demo=q1` starts one straight away. Real GPS needs https, so a real drive
+uses the GitHub Pages link, which every push to `main` redeploys. In Safari, Share → Add to
+Home Screen turns it into an app with its own icon.
 
 ---
 
@@ -337,6 +339,24 @@ Decisions so far:
   luật, 60"), a confirmed one as a plain number. LLMs help only off the road: drafting
   phrase variants for review, and the parked post-drive trip summary.
 
+There is one screen, parked or driving, and no start screen:
+
+- **Opening the app is parking.** The map of where the car is, seen from above like a map
+  app, with the street's name, the limit there for the vehicle driven last in small, and
+  any Sai still waiting for review.
+- **One tap on the vehicle starts the drive.** iOS will not let a page make a sound until
+  it is tapped, so the tap it needs anyway answers the one question the law needs from
+  the driver. Two buttons for now, Ô tô (≤ 28 chỗ) and Xe máy (trên 50 cc), for the
+  vehicles the household drives; the one driven last is filled. The camera swings down into
+  the driver's seat and the small sign grows into the badge.
+- **Driving off without a tap still drives.** Past 10 km/h the screen turns to driving on
+  the vehicle used last, and asks "Chạm để bật giọng nói" for the voice.
+- **The trip ending is coming home.** Five minutes standing still, ten minutes away from
+  the app, or Dừng: the camera rises again and the trip's Sai arrive in the panel. The
+  screen is then allowed to sleep until the next touch.
+- **Out of the daily path:** demo drives, export and clearing the log live under ⋯, and
+  "Thêm vào Màn hình chính" shows only in Safari.
+
 The road view is built into the test app from the phone's own map tiles:
 
 - **The road ahead is picked out** only as far as it obviously goes, fading where it
@@ -393,17 +413,23 @@ plates at đông dân cư boundaries.
 2. ~~iPhone test app~~ — done: GPS, Vietnamese voice, the road view, one-tap error logging
    for a passenger, demo drives, home-screen install and offline tiles.
 3. ~~Traffic-light warning~~ — done: in the test app, the simulator, and the trip log.
-4. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
+4. ~~Home screen~~ — done: the app opens parked on the map, and a tap on the vehicle or
+   driving off starts the drive.
+5. **Answers correct your own phone:** a limit given on a Sai card replaces the app's
+   number on that stretch the next time this phone passes it, labelled as the driver's
+   own report. Most driving is the same few routes, so a commute gets right within a week,
+   with no server.
+6. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
    QL13 near Bến Cát. After the 2025 ward mergers those stretches sit inside large
    *phường*, so they are where the đông dân cư guess is weakest. The city streets also
    check the traffic-light warnings.
-5. **Decide** from the results: launch main roads on the guess, or pay for a survey of
+7. **Decide** from the results: launch main roads on the guess, or pay for a survey of
    main-road boundaries first.
-6. **Fix:** where OSM maps one road as alternating pieces with different limits (a stretch
+8. **Fix:** where OSM maps one road as alternating pieces with different limits (a stretch
    of Nguyễn Văn Linh alternates 60 and 80), each switch restarts the stabiliser's
    distance, so the badge can stay on a lower limit for 400 m after the road has gone back
    up. Safe-side, but wrong.
-7. Junction view from real geometry, then the native app.
+9. Junction view from real geometry.
 
 ---
 

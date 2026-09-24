@@ -1,5 +1,9 @@
-// Test app: GPS in, spoken and displayed speed limit out, and a review of every Sai once
-// the trip is over.
+// The app: GPS in, spoken and displayed speed limit out, and a review of every Sai once the
+// trip is over.
+//
+// There is one screen. It opens parked: a map of where the car is, seen from above, the
+// limit where it stands, and anything waiting for review. A tap on the vehicle, or simply
+// driving off, turns it into the drive screen; standing still long enough turns it back.
 // Every decision about the number lives in the tested modules under src/; this file only
 // wires the phone to them and draws the result.
 import { tilesAround, matchLive, evaluate, makeStabiliser } from './src/live.js';
@@ -65,13 +69,34 @@ const DEMOS = {
 };
 
 const WALK = 650;   // metres of road ahead the view and the shoulder signs look at
+const SHOW_LIGHTS = 380;
+// Parked, the car sits in the middle of the map the road card and the panel leave uncovered.
+const PARK_Y = 0.42;
+
+// The two vehicles on the home screen, for now: what the household drives. The law module
+// knows the other seven. "Xe máy" in speech also covers a 50 cc bike, which Điều 7 caps at
+// 40, so the button says which one it means.
+const SLOTS = ['oto_con', 'xe_mo_to'];
+const SHORT = {
+  oto_con: { name: 'Ô tô', sub: '≤ 28 chỗ', glyph: 'car' },
+  xe_mo_to: { name: 'Xe máy', sub: 'trên 50 cc', glyph: 'scooter' },
+};
+const GLYPH = {
+  car: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6.3 5.3C6.6 4.5 7.3 4 8.2 4h7.6c.9 0 1.6.5 1.9 1.3L19.5 10h.5a1 1 0 0 1 1 1v6.5a1.5 1.5 0 0 1-1.5 1.5H19v1.2a.8.8 0 0 1-.8.8h-1.4a.8.8 0 0 1-.8-.8V19H8v1.2a.8.8 0 0 1-.8.8H5.8a.8.8 0 0 1-.8-.8V19h-.5A1.5 1.5 0 0 1 3 17.5V11a1 1 0 0 1 1-1h.5zM8 6.3h8l1.2 3.4H6.8zM5.4 14a1.35 1.35 0 1 0 2.7 0 1.35 1.35 0 1 0-2.7 0zm10.5 0a1.35 1.35 0 1 0 2.7 0 1.35 1.35 0 1 0-2.7 0zM9.8 15h4.4v1.4H9.8z"/></svg>',
+  scooter: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.6 15.8C2.4 12.6 4.6 10.8 7.6 10.8H10.6C11.4 10.8 11.9 11.3 12 12.1L12.3 13.9H15.1L16 6.6H18.1L18.3 13.2C19.9 13.4 21.3 14.4 21.7 15.8H9.4C9 14.5 7.7 13.9 6 13.9C4.3 13.9 3 14.5 2.6 15.8Z"/><rect x="4.4" y="9" width="6.6" height="2.4" rx="1.2"/><rect x="15.2" y="5.1" width="5.2" height="1.8" rx=".9"/><path fill-rule="evenodd" d="M3.5 17.8a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0zm1.65 0a.85.85 0 1 0 1.7 0 .85.85 0 1 0-1.7 0zM15.7 17.8a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0zm1.65 0a.85.85 0 1 0 1.7 0 .85.85 0 1 0-1.7 0z"/></svg>',
+};
+const CHEV = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+const SPEAKER = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
 // A xe máy may ride both ways on some streets that are one-way for cars.
 const bike = () => !!(VEHICLES[state.vehicle] && VEHICLES[state.vehicle].twoWheeler);
-const SHOW_LIGHTS = 380;
+const keyOf = (r) => `${r.limit.max ?? '—'}|${r.limit.tier}`;
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
+const saved = store.get('vehicle', 'oto_con');
 const state = {
-  vehicle: store.get('vehicle', 'oto_con'),
+  mode: 'home',      // 'home': parked, a map of where the car is; 'drive': the drive screen
+  vehicle: SLOTS.includes(saved) ? saved : 'oto_con',
   index: null,
   tiles: new Map(),
   prev: null,
@@ -98,148 +123,263 @@ const state = {
   watch: null,
   timer: null,
   wake: null,
+  rested: false,     // parked after a trip: the screen may sleep until the next touch
+  holdAuto: false,   // Dừng while moving: do not start driving again until the car stops
   audio: null,
+  pill: false,
   demo: null,
   hud: null,
-  motion: null,
+  motion: makeMotion(),
   fill: makeFixFiller(),
   raf: null,
+  redraw: true,
   sceneAt: 0,
   speedTarget: null,
   speedShown: 0,
   lastRect: null,
   roadName: null,
+  metaKey: null,
+  said: null,
+  canLook: true,
+  handMoved: false,
 };
 
-// ---------- start screen ----------
+// ---------- home ----------
 
-for (const [k, v] of Object.entries(VEHICLES)) {
-  const o = document.createElement('option');
-  o.value = k; o.textContent = v.label;
-  if (k === state.vehicle) o.selected = true;
-  $('vehicle').appendChild(o);
+function renderGreet() {
+  const h = new Date(Date.now() + 7 * 3600e3).getUTCHours();
+  const part = h < 4 ? 'Đêm nay' : h < 11 ? 'Sáng nay' : h < 13 ? 'Trưa nay' : h < 18 ? 'Chiều nay' : h < 22 ? 'Tối nay' : 'Đêm nay';
+  $('greet').textContent = `${part} đi xe gì?`;
 }
+
+function renderTiles() {
+  SLOTS.forEach((v, i) => {
+    const sh = SHORT[v], t = $(`tile${i}`), last = v === state.vehicle;
+    t.classList.toggle('last', last);
+    t.setAttribute('aria-label', `Bắt đầu với ${sh.name}`);
+    t.innerHTML = `<span class="tg">${GLYPH[sh.glyph]}</span>${last ? '<span class="was">Lần trước</span>' : ''}<span class="tl"><b>${esc(sh.name)}</b><small>${esc(sh.sub)}</small></span>`;
+  });
+}
+
+// Reports waiting for an answer lead the home panel: this is where a driver who parked
+// finds them again. fresh: how many at the front arrived with the trip just ended.
+const allPending = () => pending([...disk.get('reports', []), ...scratch.get('reports', [])], Date.now());
+function renderPending(fresh = 0) {
+  const list = allPending(), row = $('pending');
+  row.hidden = !list.length;
+  if (!list.length) return;
+  const trips = new Set(list.map((r) => r.trip)).size;
+  const when = whenLabel(list[0].t, Date.now());
+  const shown = list.slice(0, 3).reverse();
+  const signs = shown.map((r, i) => {
+    const m = r.shown && r.shown.max;
+    return `<span class="mini-sign ${m == null ? 'unknown' : ''} ${i >= shown.length - fresh ? 'fresh' : ''}">${m ?? '–'}</span>`;
+  }).join('');
+  row.innerHTML = `<span class="sign-stack">${signs}</span>
+    <div><b>${list.length} chỗ chờ bạn xem lại</b><small>${trips > 1 ? `${trips} chuyến · mới nhất ${when}` : `Chuyến ${when}`}</small></div>${CHEV}`;
+}
+$('pending').onclick = () => openReview(allPending(), 'home');
+
+function renderLogCount() {
+  const trips = disk.get('trips', []).length, reports = disk.get('reports', []).length;
+  $('logCount').textContent = `${trips} chuyến, ${reports} lần báo sai`;
+}
+
+// The way to install is only worth saying in Safari, and only until it has been read.
+function syncInstall() {
+  $('install').hidden = !(navigator.standalone === false && state.mode === 'home' && !store.get('installSeen', false));
+}
+$('installX').onclick = () => { store.set('installSeen', true); syncInstall(); };
+
+// Picking the vehicle is starting the drive. It is also the tap iOS needs before a page
+// can make a sound, so the one question the law needs answered costs nothing extra.
+function tapTile(i) {
+  if (state.mode !== 'home') return;
+  unlockAudio();
+  keepAwake();
+  const v = SLOTS[i];
+  if (v !== state.vehicle) { state.vehicle = v; store.set('vehicle', v); renderTiles(); }
+  toDrive();
+}
+$('tile0').onclick = () => tapTile(0);
+$('tile1').onclick = () => tapTile(1);
 
 for (const [key, d] of Object.entries(DEMOS)) {
   const b = document.createElement('button');
-  b.type = 'button'; b.className = 'demo';
-  b.innerHTML = `<span><b></b><small></small></span><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
+  b.type = 'button'; b.className = 'cell';
+  b.innerHTML = `<span class="grow"><b></b><small></small></span>${CHEV}`;
   b.querySelector('b').textContent = d.title;
   b.querySelector('small').textContent = d.sub;
-  b.onclick = () => start(key);
+  b.onclick = () => { closeSheets(); startDemo(key); };
   $('demos').appendChild(b);
 }
 
-function renderLogButton() {
-  let b = $('clear');
-  if (!b) {
-    b = document.createElement('button');
-    b.id = 'clear'; b.type = 'button'; b.className = 'link';
-    b.onclick = () => {
-      const trips = disk.get('trips', []), reports = disk.get('reports', []);
-      if (!trips.length && !reports.length) return;
-      if (confirm(`Xoá ${trips.length} chuyến và ${reports.length} lần báo sai đã lưu? Hãy xuất trước nếu cần.`)) {
-        for (const t of trips) disk.del(`trace:${t.id}`);
-        disk.del('trips'); disk.del('reports');
-        renderLogButton(); renderPending();
-      }
-    };
-    document.querySelector('.start-inner').appendChild(b);
+$('clear').onclick = () => {
+  const trips = disk.get('trips', []), reports = disk.get('reports', []);
+  if (!trips.length && !reports.length) return;
+  if (confirm(`Xoá ${trips.length} chuyến và ${reports.length} lần báo sai đã lưu? Hãy xuất trước nếu cần.`)) {
+    for (const t of trips) disk.del(`trace:${t.id}`);
+    disk.del('trips'); disk.del('reports');
+    renderLogCount();
+    morph(() => renderPending());
   }
-  const trips = disk.get('trips', []).length, reports = disk.get('reports', []).length;
-  b.textContent = trips || reports ? `Nhật ký: ${trips} chuyến, ${reports} lần báo sai — xoá` : '';
-  b.hidden = !(trips || reports);
-}
-
-// Reports waiting for an answer lead the start screen: this is where a driver who closed
-// the app at the end of a trip finds them again.
-const allPending = () => pending([...disk.get('reports', []), ...scratch.get('reports', [])], Date.now());
-const signChip = (r) => {
-  const m = r.shown && r.shown.max;
-  return `<span class="mini-sign ${m == null ? 'unknown' : ''}">${m ?? '–'}</span>`;
 };
-function renderPending() {
-  const list = allPending();
-  const b = $('pending');
-  b.hidden = !list.length;
-  if (!list.length) return;
-  b.innerHTML = `<span class="sign-stack">${list.slice(0, 3).reverse().map(signChip).join('')}</span>
-    <div><b>${list.length} chỗ chưa xem</b><small>Bạn bấm Sai ${whenLabel(list[0].t, Date.now())} · xem khi xe đã dừng</small></div>
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
+
+// ---------- parked and driving ----------
+
+const bodyFor = (mode) => $(mode === 'drive' ? 'driveBody' : 'homeBody');
+const landscape = () => matchMedia('(orientation: landscape) and (max-height: 520px)').matches;
+
+// The old side of the panel drops away, the panel springs to the new side's height, and
+// the new side rises in a row at a time. measured() runs once the new layout is known and
+// before anything moves, so a sign can be sent to where the badge will end up.
+function swapPanel(to, { before, measured } = {}) {
+  const panel = $('panel'), next = bodyFor(to), prev = bodyFor(to === 'drive' ? 'home' : 'drive');
+  const h0 = panel.offsetHeight;
+  for (const el of [panel, prev, next, ...prev.children, ...next.children]) el.getAnimations().forEach((a) => a.cancel());
+  prev.classList.add('leaving');
+  next.classList.remove('leaving');
+  next.hidden = false;
+  if (before) before();
+  const h1 = panel.offsetHeight;
+  if (measured) measured();
+  if (!landscape()) panel.animate([{ height: `${h0}px` }, { height: `${h1}px` }], { duration: 640, easing: SPRING });
+  const out = prev.animate([{ opacity: 1, transform: 'none', filter: 'blur(0px)' }, { opacity: 0, transform: 'translateY(14px) scale(0.97)', filter: 'blur(6px)' }], { duration: 220, easing: 'ease-in', fill: 'forwards' });
+  const gone = () => { if (bodyFor(state.mode) !== prev && !prev.hidden) { prev.hidden = true; prev.classList.remove('leaving'); out.cancel(); } };
+  out.onfinish = gone;
+  setTimeout(gone, 500);
+  [...next.children].filter((el) => !el.hidden).forEach((el, i) => el.animate(
+    [{ opacity: 0, transform: 'translateY(18px)', filter: 'blur(6px)' }, { opacity: 1, transform: 'none', filter: 'blur(0px)' }],
+    { duration: 650, delay: 60 + i * 70, easing: SPRING, fill: 'backwards' },
+  ));
 }
-$('pending').onclick = () => openReview(allPending(), 'start');
 
-migrate();
-tidy();
-renderLogButton();
-renderPending();
+// Something in the panel changes size while it stays on the same side.
+function morph(change) {
+  const panel = $('panel');
+  const h0 = panel.offsetHeight;
+  panel.getAnimations().forEach((a) => a.cancel());
+  change();
+  const h1 = panel.offsetHeight;
+  if (Math.abs(h1 - h0) > 1 && !landscape()) panel.animate([{ height: `${h0}px` }, { height: `${h1}px` }], { duration: 560, easing: SPRING });
+}
 
-$('go').onclick = () => start(null);
+// Where an element sits on the screen in layout pixels, whatever it is animating through.
+function boxOf(el) {
+  let x = 0, y = 0;
+  for (let e = el; e; e = e.offsetParent) { x += e.offsetLeft; y += e.offsetTop; }
+  return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+}
 
-// iOS will not let a page make sound before it has been tapped, so the clips cannot be
-// fetched on load. Any touch counts, and one almost always lands on the start screen well
-// before Go does - which is what keeps the opening line off the fallback voice.
-document.addEventListener('pointerdown', unlockAudio, { once: true });
+// A sign travelling across the screen, between a badge-sized end and a small one.
+function fly(big, small, toBig, max, done) {
+  const g = document.createElement('div');
+  g.className = `ghost-sign${max == null ? ' unknown' : ''}`;
+  Object.assign(g.style, { left: `${big.x}px`, top: `${big.y}px`, width: `${big.w}px`, height: `${big.h}px` });
+  g.textContent = max ?? '–';
+  $('app').appendChild(g);
+  const dx = small.x + small.w / 2 - (big.x + big.w / 2), dy = small.y + small.h / 2 - (big.y + big.h / 2);
+  const at = `translate(${dx}px, ${dy}px) scale(${small.w / big.w})`;
+  const frames = toBig ? [{ transform: at }, { transform: 'none' }] : [{ transform: 'none' }, { transform: at }];
+  // It lands even if the animation never finishes (a page hidden mid-flight): the sign it
+  // stands in for is hidden until then, and that sign is the badge.
+  let landed = false;
+  const land = () => { if (landed) return; landed = true; g.remove(); if (done) done(); };
+  g.animate(frames, { duration: 720, easing: SPRING }).onfinish = land;
+  setTimeout(land, 1000);
+}
 
-async function start(demo) {
-  state.vehicle = $('vehicle').value;
-  store.set('vehicle', state.vehicle);
-  // iOS only lets a page speak or play sound after a tap, so both are unlocked here.
-  unlockAudio();
-  // The opening line is the one most likely to be asked for before its clip has decoded.
-  // Waiting for it would hold up the screen, so the drive starts now and the greeting
-  // follows when it can be said properly - or in the phone's voice if the wait was for
-  // nothing.
-  Promise.race([state.voiceReady, new Promise((r) => setTimeout(r, 1500))])
-    .then(() => say(demo ? 'start-demo' : 'start'));
-  await keepAwake();
-  $('start').hidden = true;
-  $('drive').hidden = false;
-  $('demoTag').hidden = !demo;
+// Into the drive screen: the small sign on the card grows into the badge while the camera
+// comes down from overhead into the driver's seat. auto: the car drove off by itself, so
+// nobody has necessarily tapped yet.
+function toDrive({ auto = false } = {}) {
+  if (state.mode === 'drive') return;
+  state.mode = 'drive';
+  // Reviewing is for a parked car.
+  if (review && review.isOpen()) review.close();
+  closeSheets();
+  hideRecenter();
+  state.hud.setBike(bike());
   Object.assign(state, {
-    demo, stab: makeStabiliser(), lights: makeLightWatcher(), shown: null, prev: null, last: null, heading: null,
-    walk: null, current: null, speedTarget: null, speedShown: 0, lastRect: null, roadName: null, hudLimit: null, stillScene: false,
-    sources: { gps: 0, derived: 0, none: 0 }, motion: makeMotion(), fill: makeFixFiller(),
+    stab: makeStabiliser(), lights: makeLightWatcher(), judged: new WeakMap(), shown: null, stillScene: false,
+    hudLimit: null, lastRect: null, speedShown: 0, overSince: null, overSaid: false, metaKey: null, said: null,
   });
-  state.hud = makeHud($('scene'), { theme: theme(), bike: bike() });
-  state.canLook = true;
-  $('recenter').hidden = true;
-  setBadge(null, null);
-  $('roadName').textContent = 'Đang tìm đường…';
-  $('roadMeta').textContent = '';
-  hideTripEnd();
-  beginTrip();
-  try {
-    state.index = await (await fetch('tiles/index.json')).json();
-    state.trip.built = state.index.built;
-    $('tier').textContent = demo ? 'Đang tải' : 'Đang chờ GPS';
-    $('built').textContent = `OSM, ${state.index.built}`;
-  } catch {
-    $('tier').textContent = 'Không tải được dữ liệu';
+  $('install').hidden = true;
+  $('demoTag').hidden = !state.demo;
+  let r = null;
+  if (state.prev && state.index) {
+    r = evaluate(state.prev, state.index, state.vehicle);
+    state.stab({ key: keyOf(r), max: r.limit.max }, 0);
+    state.shown = r; state.current = r;
   }
-  startLoop();
-  if (demo) startDemo(DEMOS[demo]); else startPositions();
+  const max = r ? r.limit.max : null;
+  const here = $('here'), from = boxOf(here);
+  here.style.visibility = 'hidden';
+  $('card').classList.add('driving');
+  setBadge(max, r ? r.limit.tier : null);
+  $('unit').textContent = `km/h · ${SHORT[state.vehicle].name.toLowerCase()}`;
+  $('vehicleRow').textContent = VEHICLES[state.vehicle].label;
+  $('speed').textContent = '–';
+  $('wrongSmall').textContent = 'Ghi lại chỗ này';
+  swapPanel('drive', {
+    measured() {
+      const sign = $('sign');
+      sign.style.visibility = 'hidden';
+      fly(boxOf(sign), from, true, max, () => {
+        sign.style.visibility = '';
+        sign.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.07)' }, { transform: 'scale(1)' }], { duration: 520, easing: SPRING });
+      });
+    },
+  });
+  if (r) { state.metaKey = driveMeta(r); $('roadMeta').innerHTML = state.metaKey; swapIn('roadMeta'); }
+  state.hud.park(false);
+  beginTrip();
+  if (state.last) place(state.last, 0);
+  if (!auto || voiceLive()) greet(); else showPill();
+  keepAwake();
 }
 
-$('stop').onclick = () => {
-  if (state.watch != null) navigator.geolocation.clearWatch(state.watch);
-  if (state.timer) clearInterval(state.timer);
-  if (state.raf) cancelAnimationFrame(state.raf);
-  state.watch = null; state.timer = null; state.raf = null;
-  try { state.wake && state.wake.release(); } catch {}
-  if (state.voice) state.voice.cut();
-  const trip = state.trip;
-  endTrip(false);
+// Back home: the trip is over, the badge goes back up into the card as the camera rises,
+// and whatever was tapped on the way arrives in the panel.
+function toHome() {
+  if (state.mode === 'home') return;
+  const badge = boxOf($('sign'));
+  const fresh = state.trip ? waitingFor(state.trip).length : 0;
+  endTrip();
   state.trip = null;
-  hideTripEnd();
-  openSheet(false);
-  $('drive').hidden = true;
-  $('start').hidden = false;
-  renderLogButton();
-  renderPending();
-  // Stopping on purpose is the clearest end of a trip there is.
-  const waiting = trip ? waitingFor(trip) : [];
-  if (waiting.length) openReview(waiting, 'start');
+  state.mode = 'home';
+  if (state.demo) endDemo();
+  state.hud.setBike(bike());
+  Object.assign(state, { stab: makeStabiliser(), shown: null, stillScene: false, judged: new WeakMap(), metaKey: null, walk: null, speedTarget: null });
+  if (state.voice) state.voice.cut();
+  closeSheets();
+  hidePill();
+  hideRecenter();
+  $('panel').classList.remove('over');
+  $('speed').classList.remove('over');
+  $('demoTag').hidden = true;
+  $('card').classList.remove('driving');
+  const here = $('here');
+  here.style.visibility = 'hidden';
+  if (state.last) place(state.last, 0);
+  swapIn('roadMeta');
+  swapPanel('home', { before() { renderTiles(); renderGreet(); renderPending(fresh); } });
+  fly(badge, boxOf(here), false, state.shown ? state.shown.limit.max : null, () => {
+    here.style.visibility = '';
+    here.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 480, easing: SPRING });
+  });
+  state.hud.park(true);
+  syncInstall();
+  renderLogCount();
+  rest();
+}
+
+// Dừng: the trip is over now. Still moving, it stays over until the car has stopped, or it
+// would start again with the next fix.
+$('stop').onclick = () => {
+  const kmh = state.last && state.last.speed != null ? state.last.speed * 3.6 : 0;
+  if (kmh >= 3) state.holdAuto = true;
+  toHome();
 };
 
 // ---------- position ----------
@@ -269,17 +409,32 @@ function startPositions() {
   );
 }
 
+function stopPositions() {
+  if (state.watch != null) navigator.geolocation.clearWatch(state.watch);
+  if (state.timer) clearInterval(state.timer);
+  state.watch = null; state.timer = null;
+}
+
 // Without a fix there is no road to name, so the road card carries the GPS problem.
 function gpsStatus(text, hint = '') {
   $('gps').textContent = text;
   if (!state.current) { $('roadName').textContent = text; $('roadMeta').textContent = hint; }
 }
 
-async function startDemo(d) {
+// A demo borrows the screen from the real GPS: the pretend car is placed at its start and
+// drives off, and when the trip ends the real position takes over again.
+async function startDemo(key) {
+  if (state.mode !== 'home') return;
+  const d = DEMOS[key];
+  unlockAudio();
+  keepAwake();
+  stopPositions();
+  forget();
+  state.demo = key;
   await loadTiles(d.start[0], d.start[1]);
   const getPieces = (lon, lat) => { ensureTiles(lon, lat); return piecesAround(lon, lat); };
   const step = makeAutopilot({ getPieces, start: d.start, heading: d.heading, kmh: d.kmh, seed: d.seed });
-  if (!step) { $('roadName').textContent = 'Không tìm thấy đường mô phỏng'; return; }
+  if (!step) { toast('Không tìm thấy đường mô phỏng'); endDemo(); return; }
   // One fix a second, like the phone's GPS, so the smoothing is seen doing real work.
   // ?park=60 stops the car after a minute, to see a trip end without waiting at a desk.
   const park = Number(params.get('park')) || 0, t0 = Date.now();
@@ -292,8 +447,28 @@ async function startDemo(d) {
     }
     onFix({ ...step(1), t: Date.now() });
   };
-  tick();
+  onFix({ lon: d.start[0], lat: d.start[1], acc: 5, heading: null, speed: 0, t: Date.now() });
+  toDrive({ auto: true });
   state.timer = setInterval(tick, 1000);
+}
+
+function endDemo() {
+  if (state.timer) clearInterval(state.timer);
+  state.timer = null;
+  state.demo = null;
+  forget();
+  $('roadName').textContent = 'Đang tìm vị trí…';
+  $('roadMeta').textContent = '';
+  startPositions();
+}
+
+// A jump to somewhere else entirely: nothing about where the car was carries over.
+function forget() {
+  Object.assign(state, {
+    fill: makeFixFiller(), motion: makeMotion(), prev: null, heading: null, current: null, last: null,
+    stillScene: false, roadName: null, metaKey: null, stab: makeStabiliser(), shown: null, walk: null,
+  });
+  setHere(null);
 }
 
 function onFix(raw) {
@@ -318,40 +493,43 @@ function onFix(raw) {
     place(fix, step);
   }
 
-  checkOver(kmh);
+  if (state.mode === 'drive') checkOver(kmh);
   trace(fix, kmh);
   follow(fix, kmh);
+  // Moving is driving, whether or not anyone tapped.
+  if (kmh != null && kmh < 3) state.holdAuto = false;
+  if (state.mode === 'home' && !state.holdAuto && kmh != null && kmh >= MOVING_KMH) toDrive({ auto: true });
 }
 
 // Match the fix to a road and show what follows from it. Also run again, with no distance
 // travelled, when map tiles arrive: a phone's first fix usually beats its tiles, and a
 // parked phone may not send another for a while.
 function place(fix, step) {
-  {
-    const pieces = piecesAround(fix.lon, fix.lat);
-    const m = matchLive(pieces, fix, state.prev, bike());
-    if (m) {
-      state.prev = m.piece;
-      const r = evaluate(m.piece, state.index, state.vehicle);
-      state.current = r;
-      const s = state.stab({ key: `${r.limit.max ?? '—'}|${r.limit.tier}`, max: r.limit.max }, step);
-      if (s.changed) {
-        const first = !state.shown;
-        state.shown = r;
+  const pieces = piecesAround(fix.lon, fix.lat);
+  const m = matchLive(pieces, fix, state.prev, bike());
+  if (m) {
+    state.prev = m.piece;
+    const r = evaluate(m.piece, state.index, state.vehicle);
+    state.current = r;
+    const s = state.stab({ key: keyOf(r), max: r.limit.max }, step);
+    if (s.changed) {
+      const first = !state.shown;
+      state.shown = r;
+      if (state.mode === 'drive') {
         announce(r);
         if (first) setBadge(r.limit.max, r.limit.tier); else arrive(r.limit.max, r.limit.tier);
-      }
-      render(r);
-      ahead(pieces, m, fix, s.shown);
-    } else if (tilesLoading(fix)) {
-      state.current = null;
-      $('roadName').textContent = 'Đang tải bản đồ…';
-      $('roadMeta').textContent = '';
-    } else {
-      state.current = null;
-      $('roadName').textContent = 'Không khớp con đường nào gần';
-      $('roadMeta').textContent = 'Có thể đang ở ngoài vùng dữ liệu, hoặc GPS chưa chính xác';
+      } else setHere(r);
     }
+    render(r);
+    ahead(pieces, m, fix, s.shown);
+  } else if (tilesLoading(fix)) {
+    state.current = null;
+    $('roadName').textContent = 'Đang tải bản đồ…';
+    $('roadMeta').textContent = '';
+  } else {
+    state.current = null;
+    $('roadName').textContent = 'Không khớp con đường nào gần';
+    $('roadMeta').textContent = 'Có thể đang ở ngoài vùng dữ liệu, hoặc GPS chưa chính xác';
   }
 }
 
@@ -380,6 +558,14 @@ function ahead(pieces, m, fix, shownValue) {
     return;
   }
   const walk = walkAhead(pieces, m, state.heading, WALK, from, bike());
+  state.motion.fix(now, walk.pts, fix.speed);
+  // Parked, nothing is ahead either: the car is on a map, not on its way somewhere.
+  if (state.mode === 'home') {
+    state.walk = null;
+    state.hud.setScene({ pieces, at: from, walk: null, piece: m.piece }, now);
+    state.sceneAt = now;
+    return;
+  }
   state.walk = walk;
   const moving = fix.speed != null && fix.speed >= 2;
   if (moving) {
@@ -394,7 +580,7 @@ function ahead(pieces, m, fix, shownValue) {
     let j = state.judged.get(piece);
     if (!j) {
       const r = evaluate(piece, state.index, state.vehicle);
-      j = { key: `${r.limit.max ?? '—'}|${r.limit.tier}`, max: r.limit.max };
+      j = { key: keyOf(r), max: r.limit.max };
       state.judged.set(piece, j);
     }
     return j;
@@ -406,7 +592,6 @@ function ahead(pieces, m, fix, shownValue) {
     return state.heading;
   };
   const lights = walk.lights.filter((l) => l.dist <= SHOW_LIGHTS).map((l) => ({ ...l, bearing: bearingAt(l.dist) }));
-  state.motion.fix(now, walk.pts, fix.speed);
   state.hud.setScene({ pieces, at: from, walk, piece: m.piece, lights, limits }, now);
   state.sceneAt = now;
 }
@@ -430,7 +615,7 @@ function ensureTiles(lon, lat) {
       .then((r) => (r.ok ? r.json() : []))
       .then((j) => {
         state.tiles.set(k, j);
-        if (state.last && !state.current && state.index && !state.demo && !$('drive').hidden) place(state.last, 0);
+        if (state.last && !state.current && state.index && !state.demo) place(state.last, 0);
       })
       .catch(() => { state.tiles.delete(k); });
     state.tiles.set(k, p);
@@ -458,20 +643,32 @@ function piecesAround(lon, lat) {
 // ---------- screen ----------
 
 const CONF = { cao: 'chắc', trung_binh: 'khá chắc', thap: 'không chắc' };
+const TIER = { bien_bao: ['Biển báo', 'sign'], theo_luat: ['Theo luật', 'law'] };
+
+// Parked, the card says how sure the limit is and where; driving, what kind of road it is.
+function homeMeta(r) {
+  const [t, c] = TIER[r.limit.tier] || [r.road.expressway ? 'Xem biển cao tốc' : 'Chưa rõ', 'unk'];
+  return `<span class="t ${c}">${t}</span> · ${esc(r.wardName || r.quarterName || r.label)}`;
+}
+function driveMeta(r) {
+  const road = r.road;
+  const lanes = road.lanes ? `${road.lanes} làn` : 'chưa rõ số làn';
+  const dir = road.divided ? 'đường đôi' : road.oneway ? 'một chiều' : 'hai chiều';
+  return esc(`${r.label} · ${lanes} · ${dir}`);
+}
+function swapIn(id) { const el = $(id); el.classList.remove('swap-in'); void el.offsetWidth; el.classList.add('swap-in'); }
 
 function render(current) {
   // The road name follows the car immediately; the limit follows the stabiliser, so the
   // number on screen is always the one that was spoken.
-  const road = current.road;
   const name = current.name || current.label;
   if (name !== state.roadName) {
     state.roadName = name;
     $('roadName').textContent = name;
-    for (const id of ['roadName', 'roadMeta']) { const el = $(id); el.classList.remove('swap-in'); void el.offsetWidth; el.classList.add('swap-in'); }
+    for (const id of ['roadName', 'roadMeta']) swapIn(id);
   }
-  const lanes = road.lanes ? `${road.lanes} làn` : 'chưa rõ số làn';
-  const dir = road.divided ? 'đường đôi' : road.oneway ? 'một chiều' : 'hai chiều';
-  $('roadMeta').textContent = `${current.label} · ${lanes} · ${dir}`;
+  const meta = state.mode === 'home' ? homeMeta(state.shown || current) : driveMeta(current);
+  if (meta !== state.metaKey) { state.metaKey = meta; $('roadMeta').innerHTML = meta; }
 
   const s = state.shown;
   if (!s) return;
@@ -479,6 +676,12 @@ function render(current) {
     ? 'Cao tốc'
     : `${s.zone.inside ? 'Trong' : 'Ngoài'} khu đông dân cư · ${CONF[s.zone.confidence]}`;
   $('reason').textContent = [s.limit.rule, s.zone.reason, s.wardName].filter(Boolean).join(' · ');
+}
+
+function setHere(r) {
+  const max = r ? r.limit.max : null, el = $('here');
+  el.textContent = max ?? '–';
+  el.classList.toggle('unknown', max == null);
 }
 
 function setTier(tier) {
@@ -534,17 +737,7 @@ function arrive(max, tier) {
   const now = performance.now() / 1000;
   const from = state.lastRect && state.lastRect.max === max && now - state.lastRect.t < 5 ? state.lastRect : null;
   if (!from || document.hidden) { land(); return; }
-  const to = sign.getBoundingClientRect();
-  const c = $('scene').getBoundingClientRect();
-  const ghost = document.createElement('div');
-  ghost.className = 'ghost-sign';
-  Object.assign(ghost.style, { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, borderWidth: '13px', fontSize: '40px' });
-  ghost.textContent = max;
-  document.body.appendChild(ghost);
-  const dx = c.left + from.x + from.size / 2 - (to.left + to.width / 2);
-  const dy = c.top + from.y + from.size / 2 - (to.top + to.height / 2);
-  ghost.animate([{ transform: `translate(${dx}px, ${dy}px) scale(${from.size / to.width})` }, { transform: 'none' }], { duration: 650, easing: SPRING })
-    .onfinish = () => { ghost.remove(); land(); };
+  fly(boxOf(sign), { x: from.x, y: from.y, w: from.size, h: from.size }, true, max, land);
 }
 
 function renderCount() {
@@ -560,18 +753,28 @@ function renderSources() {
     : 'GPS của máy';
 }
 
-function openSheet(open) {
-  $('sheet').classList.toggle('open', open);
+function openSheet(id, open) {
+  $(id).classList.toggle('open', open);
+  $(id).setAttribute('aria-hidden', String(!open));
   $('scrim').classList.toggle('open', open);
-  $('sheet').setAttribute('aria-hidden', String(!open));
 }
-$('more').onclick = () => openSheet(!$('sheet').classList.contains('open'));
-$('scrim').onclick = () => openSheet(false);
+function closeSheets() { openSheet('sheet', false); openSheet('settings', false); }
+$('more').onclick = () => openSheet('sheet', !$('sheet').classList.contains('open'));
+$('homeMore').onclick = () => { renderLogCount(); openSheet('settings', true); };
+$('scrim').onclick = closeSheets;
 
 function theme() {
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state.hud && state.hud.setTheme(theme()));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (state.hud) { state.hud.setTheme(theme()); state.redraw = true; } });
+
+function toast(text) {
+  const t = $('toast');
+  t.textContent = text;
+  t.hidden = false;
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => { t.hidden = true; }, 1800);
+}
 
 // ---------- looking around while stopped ----------
 
@@ -581,11 +784,9 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => stat
 function lookAround(fix) {
   if (fix.speed > 1.5) state.canLook = false;
   else if (fix.speed != null && fix.speed < 0.8) state.canLook = true;
-  if (!state.canLook && state.hud.moved()) {
-    state.hud.recenter();
-    $('recenter').hidden = true;
-  }
+  if (!state.canLook && state.handMoved) { state.hud.recenter(); hideRecenter(); }
 }
+function hideRecenter() { state.handMoved = false; $('recenter').hidden = true; }
 
 let hintTimer = null;
 function hint() {
@@ -600,6 +801,7 @@ function hint() {
 const look = (move) => (...args) => {
   if (!state.canLook || !state.hud) return;
   state.hud[move](...args);
+  state.handMoved = true;
   $('recenter').hidden = !state.hud.moved();
 };
 attachGestures($('scene'), {
@@ -614,7 +816,7 @@ attachGestures($('scene'), {
   fling: look('fling'),
   end: look('end'),
 });
-$('recenter').onclick = () => { state.hud.recenter(); $('recenter').hidden = true; };
+$('recenter').onclick = () => { state.hud.recenter(); hideRecenter(); };
 
 // ---------- frame loop ----------
 
@@ -631,17 +833,18 @@ function startLoop() {
     last = ts;
     const pose = state.motion.at(now);
     const still = lastPose && pose && Math.abs(pose.lon - lastPose.lon) < 1e-8 && Math.abs(pose.lat - lastPose.lat) < 1e-8 && pose.bearing === lastPose.bearing;
-    const settling = now - state.sceneAt < 1.2 || state.hud.busy();
+    const settling = now - state.sceneAt < 1.2 || state.hud.busy() || state.redraw;
     if (!still || settling || !lastPose) {
       state.hud.draw(pose, now, (ts - drawn) / 1000);
       drawn = ts;
       lastPose = pose;
-      if (state.walk) {
+      state.redraw = false;
+      if (state.walk && state.mode === 'drive') {
         const next = state.hudLimit;
         if (next != null) { const r = state.hud.signRect(next); if (r) state.lastRect = { ...r, max: next, t: now }; }
       }
     }
-    speedTick(dt);
+    if (state.mode === 'drive') speedTick(dt);
   };
   state.raf = requestAnimationFrame(loop);
 }
@@ -662,7 +865,8 @@ function speedTick(dt) {
 // ---------- voice ----------
 
 // iOS only lets a page make sound after a tap, so the context is built on the first one
-// and the clips are fetched behind it.
+// and the clips are fetched behind it. Any touch counts - a finger on the map at home is
+// enough for the drive that follows to speak.
 function unlockAudio() {
   try {
     state.audio = state.audio || new (window.AudioContext || window.webkitAudioContext)();
@@ -673,6 +877,9 @@ function unlockAudio() {
     }
   } catch {}
 }
+document.addEventListener('pointerdown', unlockAudio, { once: true });
+// Coming back from the background, iOS may have suspended the context again.
+const voiceLive = () => !!(state.audio && state.audio.state === 'running');
 
 // Takes a rendered line, or the id of one of the fixed ones.
 function say(line, opts) {
@@ -680,16 +887,53 @@ function say(line, opts) {
   state.voice.cue(typeof line === 'string' ? FIXED.find((f) => f.id === line) : line, opts);
 }
 
+// The opening line, then the limit the badge already shows. Both wait for the clips a
+// moment, since the first thing said on a drive is the one most likely to be asked for
+// before its recording has arrived.
+function greet() {
+  Promise.race([state.voiceReady, new Promise((r) => setTimeout(r, 1500))]).then(() => {
+    if (state.mode !== 'drive') return;
+    say(state.demo ? 'start-demo' : 'start');
+    setTimeout(() => { if (state.mode === 'drive' && state.shown && state.said !== keyOf(state.shown)) announce(state.shown, true); }, 300);
+  });
+}
+
+// Driving off without a tap: the screen works, the voice cannot until someone touches it,
+// so it asks - once, where it is seen.
+function showPill() {
+  const p = $('voicePill');
+  p.classList.remove('done');
+  p.innerHTML = `${SPEAKER}Chạm để bật giọng nói`;
+  p.hidden = false;
+  state.pill = true;
+}
+function hidePill() { $('voicePill').hidden = true; state.pill = false; }
+// The tap it asked for, anywhere on the screen: the voice comes on and says where things
+// stand, so the driver hears that it worked.
+$('app').addEventListener('pointerdown', () => {
+  if (!state.pill) return;
+  state.pill = false;
+  unlockAudio();
+  const p = $('voicePill');
+  p.classList.add('done');
+  p.innerHTML = `${SPEAKER}Đã bật giọng nói`;
+  setTimeout(hidePill, 1300);
+  Promise.race([state.voiceReady, new Promise((r) => setTimeout(r, 1500))]).then(() => {
+    if (state.mode === 'drive' && state.shown) announce(state.shown);
+  });
+}, true);
+
 // A posted sign and a number reasoned from the law must not sound equally sure: the sign
 // gets a bright chime and a flat statement, the statute a softer tone and "theo luật" -
 // and, now the lines are recorded rather than synthesised, an unhurried delivery that
 // eases off the number instead of landing on it.
 // No number, no voice.
-function announce(r) {
+function announce(r, queue = false) {
   const max = r.limit.max;
   if (max == null) return;
-  if (r.limit.tier === 'bien_bao') say(signLine(max), { chime: [988, 1319] });
-  else say(lawLine(max), { chime: [660] });
+  state.said = keyOf(r);
+  if (r.limit.tier === 'bien_bao') say(signLine(max), { chime: [988, 1319], queue });
+  else say(lawLine(max), { chime: [660], queue });
 }
 
 // Its own falling two-note cue, so a light is recognisable before the words start and
@@ -716,15 +960,24 @@ function checkOver(kmh) {
   }
 }
 
+// The screen stays on while the app is open, except once a trip has ended: a phone left in
+// a parked car should be allowed to sleep. The next touch keeps it awake again.
 async function keepAwake() {
+  state.rested = false;
+  if (state.wake && !state.wake.released) return;
   try { state.wake = await navigator.wakeLock.request('screen'); } catch {}
 }
+function rest() {
+  state.rested = true;
+  try { if (state.wake) state.wake.release(); } catch {}
+  state.wake = null;
+}
+document.addEventListener('pointerdown', () => { if (state.rested || !state.wake) keepAwake(); });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') { state.hiddenAt = Date.now(); saveTrip(true); return; }
-  if ($('drive').hidden) return;
-  keepAwake();
+  if (!state.rested) keepAwake();
   // Away this long, the trip that was running is over; the next movement starts another.
-  if (state.hiddenAt && Date.now() - state.hiddenAt > GAP_MS) endTrip();
+  if (state.mode === 'drive' && state.hiddenAt && Date.now() - state.hiddenAt > GAP_MS) toHome();
 });
 
 // ---------- log ----------
@@ -765,9 +1018,9 @@ function trace(fix, kmh) {
 
 // ---------- trips ----------
 
-// A trip starts with the drive screen and ends when the car has stood still for a while,
-// when the app has been away for a while, or when Dừng is pressed. Getting that wrong is
-// cheap: the review it offers folds away as soon as the car moves, and a new trip begins.
+// A trip is the drive screen: it starts when the screen turns to driving and ends when the
+// car has stood still for a while, when the app has been away for a while, or at Dừng.
+// Getting that wrong is cheap: the car moving again starts another.
 function beginTrip() {
   const trip = { id: Date.now(), start: new Date().toISOString(), vehicle: state.vehicle, built: state.index ? state.index.built : null };
   if (state.demo || mock) trip.scratch = true;
@@ -800,51 +1053,23 @@ function saveTrip(force) {
   d.set('trips', d.get('trips', []).map((t) => (t.id === state.trip.id ? { ...state.trip } : t)));
 }
 
-function endTrip(show = true) {
+function endTrip() {
   if (!state.trip || state.tripEnded) return;
   state.tripEnded = true;
   state.trip.end = new Date().toISOString();
   saveTrip(true);
-  if (show) showTripEnd();
 }
 
-// Every fix: the seconds a report would carry, and whether the trip is over or starting again.
+// Every fix: the seconds a report would carry, and whether the trip is over.
 function follow(fix, kmh) {
-  if (!state.trip) return;
+  if (!state.trip || state.tripEnded) return;
   const now = Date.now();
   state.window.push({ t: now, lon: +fix.lon.toFixed(6), lat: +fix.lat.toFixed(6), kmh, shown: state.shown ? state.shown.limit.max : null });
   while (state.window.length && now - state.window[0].t > 30e3) state.window.shift();
-  if (state.tripEnded) {
-    if (kmh != null && kmh > MOVING_KMH) resume();
-  } else if (state.still({ t: now, lon: fix.lon, lat: fix.lat, kmh }).ended) endTrip();
-}
-
-// Driving again: whatever the end of the last trip put on screen gets out of the way.
-function resume() {
-  beginTrip();
-  if (review && review.isOpen() && state.reviewFrom === 'drive') review.close();
-  hideTripEnd();
+  if (state.still({ t: now, lon: fix.lon, lat: fix.lat, kmh }).ended) toHome();
 }
 
 const waitingFor = (trip) => pending(home(trip).get('reports', []), Date.now()).filter((r) => r.trip === trip.id);
-
-// The drive panel turns into the end of the trip: the numbers the app said where the
-// driver tapped, and one button to go through them. Nothing to show, nothing shown.
-function showTripEnd() {
-  const waiting = state.trip ? waitingFor(state.trip) : [];
-  if (!waiting.length) { hideTripEnd(); return; }
-  $('teSigns').innerHTML = waiting.slice(0, 3).reverse().map(signChip).join('');
-  $('teSub').textContent = `${waiting.length} chỗ bạn bấm Sai cần xem`;
-  $('panel').classList.add('ended');
-  $('tripEnd').hidden = false;
-  $('recenter').hidden = true;
-}
-function hideTripEnd() {
-  $('panel').classList.remove('ended');
-  $('tripEnd').hidden = true;
-}
-$('teOpen').onclick = () => openReview(waitingFor(state.trip), 'drive');
-$('teLater').onclick = hideTripEnd;
 
 // ---------- reports ----------
 
@@ -863,6 +1088,10 @@ $('wrong').onclick = () => {
     });
     saveTrip(true);
     renderCount();
+    // Seen as well as heard, for a drive with the sound off.
+    $('wrongSmall').textContent = `Đã ghi · ${waitingFor(state.trip).length}`;
+    clearTimeout(state.wrongTimer);
+    state.wrongTimer = setTimeout(() => { $('wrongSmall').textContent = 'Ghi lại chỗ này'; }, 1800);
   }
   say('logged');
   $('wrong').animate([{ transform: 'scale(1)' }, { transform: 'scale(0.95)' }, { transform: 'scale(1)' }], { duration: 380, easing: SPRING });
@@ -915,7 +1144,7 @@ async function loadMock() {
     scratch.set('reports', reports.map((r) => ({
       ...r, id: r.id + shift, trip: id, t: iso(r.t), scratch: true, window: r.window.map((w) => ({ ...w, t: w.t + shift })),
     })));
-    renderPending();
+    if (state.mode === 'home') morph(() => renderPending());
   } catch {}
 }
 
@@ -936,9 +1165,8 @@ function openReview(list, from) {
     save: saveReport,
     share: exportAll,
     close: () => {
-      if (state.reviewFrom === 'drive' && !$('drive').hidden) showTripEnd();
-      renderPending();
-      renderLogButton();
+      if (state.mode === 'home') morph(() => renderPending());
+      renderLogCount();
     },
     remember: store,
   });
@@ -979,6 +1207,7 @@ async function exportAll() {
 }
 
 $('export').onclick = exportAll;
+$('exportAll').onclick = exportAll;
 
 // Offline page and tiles. Browsers only allow a service worker on https or localhost, so
 // the phone on the LAN address simply runs without one.
@@ -986,9 +1215,34 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
-// ?auto skips the start screen - for checking a pinned ?at= position at a desk, or
-// ?demo=q7 to run a demo drive straight away. Voice stays silent this way, since phones
-// only allow sound after a real tap.
-if (mock) loadMock();
-if (params.has('demo')) start(DEMOS[params.get('demo')] ? params.get('demo') : 'q7');
-else if (params.has('auto')) start(null);
+// ---------- start ----------
+
+// Straight onto the map, parked. ?demo=q7 runs a demo drive at once, and ?auto turns to
+// the drive screen without waiting for movement - with a pinned ?at= position, for checking
+// the drive screen at a desk. Neither can speak until the screen is touched.
+async function boot() {
+  migrate();
+  tidy();
+  renderTiles();
+  renderGreet();
+  renderPending();
+  renderLogCount();
+  syncInstall();
+  setInterval(() => { if (state.mode === 'home') renderGreet(); }, 60e3);
+  state.hud = makeHud($('scene'), { theme: theme(), bike: bike(), parkY: PARK_Y });
+  state.hud.park(true, true);
+  startLoop();
+  keepAwake();
+  if (mock) loadMock();
+  try {
+    state.index = await (await fetch('tiles/index.json')).json();
+    $('built').textContent = `OSM, ${state.index.built}`;
+    $('builtNote').textContent = `Dữ liệu bản đồ © OpenStreetMap contributors (ODbL) · ${state.index.built}`;
+  } catch {
+    $('roadName').textContent = 'Không tải được dữ liệu bản đồ';
+  }
+  if (params.has('demo')) { startDemo(DEMOS[params.get('demo')] ? params.get('demo') : 'q7'); return; }
+  startPositions();
+  if (params.has('auto')) toDrive({ auto: true });
+}
+boot();

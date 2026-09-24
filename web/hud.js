@@ -83,11 +83,18 @@ export function makeHud(canvas, options = {}) {
   // few car lengths around the car, so it climbs to where a few blocks each way are on
   // screen, about Google Maps' street level.
   const PLAN = 0.3;
-  const bike = !!options.bike;  // a xe máy: some one-way streets are two-way for it
+  let bike = !!options.bike;    // a xe máy: some one-way streets are two-way for it
   // The 3x3 tiles around the car reach at least 2.2 km from it; the view is kept inside.
   const REACH = 1000;
   const FAR = 1600;
   let pool = [], poolAt = null, gathered = 0;
+  // Parked, the screen is a map of where the car is: the camera rests overhead, with the car
+  // in the middle of the map the panels leave uncovered rather than down by the panel where
+  // the driving view keeps it. Driving, it rests in the driver's seat.
+  let parked = false;
+  let parkness = 0;             // 0 driving, 1 parked, eased between
+  let ease = 0.14;              // seconds: quick for a spring back, slower for the swing between the two
+  const rest = () => (parked ? { lift: 1, zoom: PLAN } : { lift: 0, zoom: 1 });
 
   // Capped at the window: before the stylesheet applies, a canvas's box follows its own
   // pixel size, and growing one to fit the other never stops.
@@ -95,10 +102,11 @@ export function makeHud(canvas, options = {}) {
 
   // Landscape on a dashboard mount: the numbers take the right-hand column, so the road is
   // centred in what is left.
-  const viewFor = ({ zoom, tilt, lift }) => makeView({
-    width: W, height: H, ...(W > H * 1.2 ? { carX: 0.3, carY: 0.7, horizonY: 0.12 } : {}),
-    ...options.view, scale: baseScale, zoom, tilt, lift,
-  });
+  const viewFor = ({ zoom, tilt, lift }) => {
+    const base = { ...(W > H * 1.2 ? { carX: 0.3, carY: 0.7, horizonY: 0.12 } : {}), ...options.view };
+    const carY = base.carY ?? 0.64, parkY = options.parkY ?? carY;
+    return makeView({ width: W, height: H, ...base, carY: carY + (parkY - carY) * parkness, scale: baseScale, zoom, tilt, lift });
+  };
 
   function resize() {
     dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -556,13 +564,14 @@ export function makeHud(canvas, options = {}) {
   }
 
   function settle(dt) {
-    const k = 1 - Math.exp(-dt / 0.14);
+    const k = 1 - Math.exp(-dt / ease), to = rest();
     user.x -= user.x * k; user.y -= user.y * k; user.turn -= user.turn * k; user.tilt -= user.tilt * k;
-    user.lift -= user.lift * k;
-    user.zoom = Math.exp(Math.log(user.zoom) * (1 - k));
+    user.lift += (to.lift - user.lift) * k;
+    user.zoom = Math.exp(Math.log(user.zoom) + (Math.log(to.zoom) - Math.log(user.zoom)) * k);
     raw = user.zoom;
-    if (Math.hypot(user.x, user.y) < 0.3 && Math.abs(user.turn) < 0.3 && Math.abs(user.zoom - 1) < 0.004 && Math.abs(user.tilt) < 0.3 && user.lift < 0.004) {
-      user.x = 0; user.y = 0; user.turn = 0; user.zoom = 1; user.tilt = 0; user.lift = 0; back = false;
+    if (Math.hypot(user.x, user.y) < 0.3 && Math.abs(user.turn) < 0.3 && Math.abs(user.zoom / to.zoom - 1) < 0.004 && Math.abs(user.tilt) < 0.3 && Math.abs(user.lift - to.lift) < 0.004) {
+      Object.assign(user, { x: 0, y: 0, turn: 0, tilt: 0 }, to);
+      back = false;
     }
   }
 
@@ -720,6 +729,9 @@ export function makeHud(canvas, options = {}) {
       if (!view || bw !== W || bh !== H) resize();
       const step = Math.min(dt, 0.05);
       if (back) settle(step); else animate(step);
+      const toPark = parked ? 1 : 0;
+      parkness += (toPark - parkness) * (1 - Math.exp(-step / ease));
+      if (Math.abs(toPark - parkness) < 0.002) parkness = toPark;
       view = viewFor(user);
       dirty = false;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -742,7 +754,8 @@ export function makeHud(canvas, options = {}) {
       carCam = { x: carX, y: carY, bearing: viewBearing };
       const moved = this.moved();
       const cam = moved ? handCam() : carCam;
-      if (moved && poolAt) widen();
+      // Overhead at rest sees more than the driving view does, as moving it by hand does.
+      if ((moved || user.lift > 0.004) && poolAt) widen();
       const car = toCamera(cam, carX, carY);
       drawArrows(cam, drawRoads(cam), dt);
       if (oriented) { drawAhead(cam); drawLanes(cam); }
@@ -782,14 +795,27 @@ export function makeHud(canvas, options = {}) {
     },
 
     // Spring back to following the car.
-    recenter() { coast = null; glide = null; rising = false; if (this.moved()) back = true; },
+    recenter() { coast = null; glide = null; rising = false; ease = 0.14; if (this.moved()) back = true; },
+    // Parked or driving: where the camera rests, swung to rather than cut. instant places it
+    // there at once, for a screen that opens already parked.
+    park(on, instant = false) {
+      parked = !!on;
+      coast = null; glide = null; rising = false;
+      ease = 0.3;
+      if (instant) { Object.assign(user, { x: 0, y: 0, turn: 0, tilt: 0 }, rest()); raw = user.zoom; parkness = parked ? 1 : 0; back = false; return; }
+      back = true;
+    },
+    setBike(on) { if (bike !== !!on) { bike = !!on; layouts.clear(); } },
+    // Away from where the camera rests.
     moved() {
-      return Math.hypot(user.x, user.y) > 1 || Math.abs(user.turn) > 1 || Math.abs(user.zoom - 1) > 0.02 ||
-        Math.abs(user.tilt) > 1 || user.lift > 0.004 || glide != null || rising;
+      const to = rest();
+      return Math.hypot(user.x, user.y) > 1 || Math.abs(user.turn) > 1 || Math.abs(user.zoom / to.zoom - 1) > 0.02 ||
+        Math.abs(user.tilt) > 1 || Math.abs(user.lift - to.lift) > 0.004 || glide != null || rising;
     },
     // Something on screen is changing without the car moving: a finger, momentum, an
-    // animated zoom, the swing overhead, the spring back, or arrows fading.
-    busy() { return dirty || back || rising || glide != null || coast != null || fading; },
+    // animated zoom, the swing overhead or between parked and driving, the spring back, or
+    // arrows fading.
+    busy() { return dirty || back || rising || glide != null || coast != null || fading || parkness !== (parked ? 1 : 0); },
 
     // Where the shoulder sign for this limit was last drawn, so the badge can take it over.
     signRect(max) { return rects.get(max) || null; },
