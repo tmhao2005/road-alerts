@@ -15,7 +15,7 @@ import { makeAutopilot } from './src/autopilot.js';
 import { makeFixFiller } from './src/fix.js';
 import { VEHICLES } from './src/limit.js';
 import { metresPerDegree } from './src/geo.js';
-import { makeStillness, lastChange, pending, retain, whenLabel, STILL, GAP_MS, MOVING_KMH } from './src/trip.js';
+import { makeStillness, lastChange, pending, retain, stood, whenLabel, STILL, GAP_MS, MOVING_KMH } from './src/trip.js';
 import { makeHud } from './hud.js';
 import { makeReview } from './review.js';
 import { attachGestures } from './gestures.js';
@@ -1082,19 +1082,27 @@ function trace(fix, kmh) {
 
 // A trip is the drive screen: it starts when the screen turns to driving and ends when the
 // car has stood still for a while, when the app has been away for a while, or at Dừng.
-// Getting that wrong is cheap: the car moving again starts another.
+// Getting that wrong is cheap: the car moving again starts another. It is only written
+// down once the car has gone somewhere, or a Sai was tapped: a tap on the vehicle and then
+// Dừng is not a drive, and stored, it would push a real drive's trace out of the few kept.
 function beginTrip() {
   const trip = { id: Date.now(), start: new Date().toISOString(), vehicle: state.vehicle, built: state.index ? state.index.built : null };
   if (state.demo || mock) trip.scratch = true;
   Object.assign(state, {
-    trip, tripEnded: false, window: [], still: makeStillness(stillFor()), lastTrace: 0, lastSave: 0,
+    trip, tripEnded: false, tripKept: false, tripFrom: null, window: [], still: makeStillness(stillFor()), lastTrace: 0, lastSave: 0,
     trace: [{ type: 'start', t: trip.start, vehicle: state.vehicle, ua: navigator.userAgent }],
   });
-  const d = home(trip);
-  const kept = retain([], [...d.get('trips', []), { ...trip }], Date.now());
+  renderCount();
+}
+
+function keepTrip() {
+  if (!state.trip || state.tripKept) return;
+  state.tripKept = true;
+  const d = home(state.trip);
+  const kept = retain([], [...d.get('trips', []), { ...state.trip }], Date.now());
   d.set('trips', kept.trips);
   for (const id of kept.dropped) d.del(`trace:${id}`);
-  renderCount();
+  saveTrip(true);
 }
 
 // ?still=20 shortens the wait, for trying the end of a trip at a desk.
@@ -1106,7 +1114,7 @@ function stillFor() {
 }
 
 function saveTrip(force) {
-  if (!state.trip) return;
+  if (!state.trip || !state.tripKept) return;
   const now = Date.now();
   if (!force && now - state.lastSave < 30000) return;
   state.lastSave = now;
@@ -1125,6 +1133,10 @@ function endTrip() {
 // Every fix: the seconds a report would carry, and whether the trip is over.
 function follow(fix, kmh) {
   if (!state.trip || state.tripEnded) return;
+  if (!state.tripKept) {
+    state.tripFrom = state.tripFrom || { lon: fix.lon, lat: fix.lat };
+    if (!stood([state.tripFrom, { lon: fix.lon, lat: fix.lat, kmh }])) keepTrip();
+  }
   const now = Date.now();
   state.window.push({ t: now, lon: +fix.lon.toFixed(6), lat: +fix.lat.toFixed(6), kmh, shown: state.shown ? state.shown.limit.max : null });
   while (state.window.length && now - state.window[0].t > 30e3) state.window.shift();
@@ -1138,6 +1150,7 @@ const waitingFor = (trip) => pending(home(trip).get('reports', []), Date.now()).
 $('wrong').onclick = () => {
   const kmh = state.last && state.last.speed != null ? Math.round(state.last.speed * 3.6) : null;
   if (state.trip) {
+    keepTrip();
     const snap = snapshot('report', state.last, kmh);
     state.trace.push(snap);
     const r = state.current;
@@ -1186,10 +1199,14 @@ function migrate() {
 }
 
 function tidy() {
-  const reports = disk.get('reports', []), trips = disk.get('trips', []);
+  const reports = disk.get('reports', []);
+  // Trips stored before only drives were: the ones that never moved and carry no Sai go.
+  const idle = (t) => !reports.some((r) => r.trip === t.id) && stood(disk.get(`trace:${t.id}`, []));
+  const all = disk.get('trips', []), trips = all.filter((t) => !idle(t));
+  for (const t of all) if (idle(t)) disk.del(`trace:${t.id}`);
   const kept = retain(reports, trips, Date.now());
   if (kept.reports.length !== reports.length) disk.set('reports', kept.reports);
-  if (kept.trips.length !== trips.length) disk.set('trips', kept.trips);
+  if (kept.trips.length !== all.length) disk.set('trips', kept.trips);
   for (const id of kept.dropped) disk.del(`trace:${id}`);
 }
 

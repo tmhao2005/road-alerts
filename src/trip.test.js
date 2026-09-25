@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeStillness, lastChange, pending, retain, distance, similarStretches, whenLabel, KEEP_TRACES } from './trip.js';
+import { makeStillness, lastChange, pending, retain, distance, similarStretches, whenLabel, stood, KEEP_TRACES } from './trip.js';
 
 const MIN = 60e3;
 const at = (t, lon = 106.7, lat = 10.8, kmh = 0) => ({ t, lon, lat, kmh });
@@ -107,4 +107,16 @@ test('when, the way people say it, in Vietnam time', () => {
   // 23:30 UTC on the 23rd is 06:30 on the 24th in Vietnam.
   assert.equal(whenLabel('2026-09-23T23:30:00Z', now), 'sáng nay');
   assert.equal(whenLabel('2026-09-21T02:00:00Z', now), 'sáng 21/9');
+});
+
+test('opened on a parked car and closed again, a trip never went anywhere', () => {
+  // Five minutes of GPS wander around one spot, and a start entry with no position.
+  const wander = [{ type: 'start' }, ...Array.from({ length: 60 }, (_, i) => at(i * 5000, 106.7 + (i % 3) * 0.00005, 10.8 + (i % 2) * 0.00005, i % 4))];
+  assert.equal(stood(wander), true);
+  assert.equal(stood([{ type: 'start' }]), true, 'no position at all');
+});
+
+test('a trip that reached driving speed, or left the spot, went somewhere', () => {
+  assert.equal(stood([at(0), at(5000, 106.7, 10.8, 12)]), false);
+  assert.equal(stood([at(0), at(5000, 106.7, 10.8006)]), false, '~67 m on at a crawl');
 });

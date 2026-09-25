@@ -74,6 +74,22 @@ export function retain(reports, trips, now) {
   };
 }
 
+// Whether a trip never went anywhere: the drive screen opened on a parked car and closed
+// again. Not a drive, and kept, it would push a real drive's trace out of the few that are
+// kept. It moved if it ever reached MOVING_KMH, or left where it started by more than GPS
+// wander; with no position at all, it did not. entries: { lon, lat, kmh } in any order of
+// arrival, such as a trace or the live fixes.
+export function stood(entries, { metres: radius = STILL.metres, kmh = MOVING_KMH } = {}) {
+  let first = null;
+  for (const e of entries) {
+    if (e.kmh != null && e.kmh >= kmh) return false;
+    if (e.lat == null || e.lon == null) continue;
+    if (!first) first = [e.lon, e.lat];
+    else if (metres(first, [e.lon, e.lat]) > radius) return false;
+  }
+  return true;
+}
+
 // Metres driven, from a trace of snapshots a few seconds apart. A gap in the trace (the
 // app in the background) is skipped rather than drawn as a straight line.
 export function distance(trace) {
