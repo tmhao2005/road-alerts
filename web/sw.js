@@ -1,8 +1,9 @@
 // Offline support. The page is fetched fresh whenever there is a network, so a push shows
 // up on the next open, and comes from the cache when there is none. Map tiles are kept
-// once loaded: a drive passes through places with no signal, and a tile that fails to
-// load there leaves the app with no road to match. They are dropped together when the
-// map data is rebuilt, so old and new tiles never mix.
+// once loaded - and the app loads all of them in the background - because a drive passes
+// through places with no signal, and a tile that fails to load there leaves the app with
+// no road to match. They are dropped together when the map data changes, so old and new
+// tiles never mix.
 const SHELL = 'shell';
 const TILES = 'tiles';
 const FONTS = 'fonts';
@@ -40,7 +41,8 @@ async function networkFirst(name, req, wait = 4000) {
     if (res.ok) cache.put(req, res.clone());
     return res;
   } catch (err) {
-    const hit = await cache.match(req);
+    // The page reads its own query (?demo, ?at), so any cached copy of it will do.
+    const hit = (await cache.match(req)) || (req.mode === 'navigate' && (await cache.match(req, { ignoreSearch: true })));
     if (hit) return hit;
     throw err;
   }
@@ -79,7 +81,8 @@ async function tileIndex(req) {
   try {
     if (before && res.ok) {
       const [a, b] = await Promise.all([before.clone().json(), res.clone().json()]);
-      if (a.built !== b.built) await caches.delete(TILES);
+      // Indexes from before the hash only had the build date to go on.
+      if ((a.hash || a.built) !== (b.hash || b.built)) await caches.delete(TILES);
     }
   } catch {}
   return res;

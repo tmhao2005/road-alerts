@@ -4,6 +4,7 @@
 // sits in - is done here once, so the phone never touches a polygon. Areas are
 // rasterised onto a ~55 m grid, then every road is split wherever those facts change.
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const [src = 'data/hcm-index.json', outDir = 'site/tiles'] = process.argv.slice(2);
 const data = JSON.parse(readFileSync(src, 'utf8'));
@@ -130,19 +131,27 @@ for (const p of pieces) {
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 let bytes = 0, largest = 0;
-for (const [k, t] of tiles) {
-  const json = JSON.stringify(t);
+const keys = [...tiles.keys()].sort();
+const hash = createHash('sha1');
+for (const k of keys) {
+  const json = JSON.stringify(tiles.get(k));
   bytes += json.length;
   largest = Math.max(largest, json.length);
+  hash.update(k).update(json);
   writeFileSync(`${outDir}/${k}.json`, json);
 }
 writeFileSync(`${outDir}/index.json`, JSON.stringify({
   tile: TILE,
   bbox: data.bbox,
   built: new Date().toISOString().slice(0, 10),
+  // What the tiles hold. Every push rebuilds them, mostly from the same week's extract;
+  // phones drop the tiles they keep only when this changes, not whenever a build runs.
+  hash: hash.digest('hex').slice(0, 12),
   // Bumped whenever a tile gains or changes a field. The app puts it in each tile's URL,
   // so a phone holding tiles from earlier the same day fetches the new kind instead.
   format: 2,
+  // Every tile there is, so the whole map can be saved for driving without signal.
+  keys,
   wards: data.wards.map((w) => ({ n: w.name, k: w.kind })),
   quarters: data.quarters.map((q) => ({ n: q.name, k: q.kind })),
 }));

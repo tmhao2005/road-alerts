@@ -1273,8 +1273,81 @@ $('exportAll').onclick = exportAll;
 
 // Offline page and tiles. Browsers only allow a service worker on https or localhost, so
 // the phone on the LAN address simply runs without one.
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+const offline = 'serviceWorker' in navigator && 'caches' in window && (location.protocol === 'https:' || location.hostname === 'localhost');
+const kept = offline && !!navigator.serviceWorker.controller;
+if (offline) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+// ---------- the whole map, for driving without signal ----------
+
+// A tile is kept once it has been loaded, so only roads already driven with signal were
+// there to draw without it - ten kilometres from home, on a new road, there was nothing.
+// So every tile is fetched once, in the background, nearest first, and the service
+// worker keeps them until the map data itself changes. About 16 MB over the network.
+async function saveMap() {
+  const keys = state.index && state.index.keys;
+  if (!offline || !keys) { offlineStatus(null); return; }
+  if (state.saving) return;
+  state.saving = true;
+  try { await saveTiles(keys); } finally { state.saving = false; }
+}
+// Cut off part way, it carries on when the signal comes back.
+window.addEventListener('online', () => saveMap());
+
+async function saveTiles(keys) {
+  // The first visit is not yet in the service worker's hands, and a fetch it does not see
+  // is not kept.
+  if (!navigator.serviceWorker.controller) {
+    await Promise.race([
+      new Promise((r) => navigator.serviceWorker.addEventListener('controllerchange', r, { once: true })),
+      new Promise((r) => setTimeout(r, 10e3)),
+    ]);
+    if (!navigator.serviceWorker.controller) { offlineStatus(null); return; }
+  }
+  // On a first visit the page itself loaded before the worker was running, so none of the
+  // app was kept - only the map would open without signal. Fetched again, it is.
+  if (!kept) {
+    const own = [location.href, ...performance.getEntriesByType('resource').map((e) => e.name)]
+      .filter((u) => new URL(u).origin === location.origin && !/\/tiles\/-?\d+_-?\d+\.json/.test(u));
+    await Promise.all(own.map((u) => fetch(u).catch(() => {})));
+  }
+  // Asked, iOS and Chrome keep an installed app's storage instead of clearing it for space.
+  try { await navigator.storage.persist(); } catch {}
+  const f = state.index.format;
+  const url = (k) => `tiles/${k}.json${f ? `?f=${f}` : ''}`;
+  let cache;
+  try { cache = await caches.open('tiles'); } catch { offlineStatus(null); return; }
+  const missing = [];
+  for (const k of keys) if (!(await cache.match(new URL(url(k), location.href)))) missing.push(k);
+  let done = keys.length - missing.length;
+  offlineStatus(done, keys.length);
+  if (!missing.length) return;
+  const here = state.last || { lon: (state.index.bbox[0] + state.index.bbox[2]) / 2, lat: (state.index.bbox[1] + state.index.bbox[3]) / 2 };
+  const far = (k) => { const [x, y] = k.split('_').map(Number); return Math.hypot((x + 0.5) * TILE - here.lon, (y + 0.5) * TILE - here.lat); };
+  missing.sort((a, b) => far(a) - far(b));
+  let failed = 0;
+  await Promise.all(Array.from({ length: 3 }, async () => {
+    while (missing.length) {
+      // Hidden, the phone would stop the page mid-fetch anyway.
+      while (document.visibilityState === 'hidden') await new Promise((r) => document.addEventListener('visibilitychange', r, { once: true }));
+      const k = missing.shift();
+      try {
+        const res = await fetch(url(k));
+        await res.arrayBuffer();
+        if (res.ok) done++; else failed++;
+      } catch { failed++; }
+      offlineStatus(done, keys.length, failed);
+    }
+  }));
+}
+
+function offlineStatus(done, total, failed = 0) {
+  const note = $('offlineNote'), val = $('offlineVal');
+  if (done == null) { note.textContent = 'Chỉ có trên bản cài từ https'; val.textContent = ''; return; }
+  const pct = Math.floor((100 * done) / total);
+  if (done >= total) { note.textContent = 'Đã tải toàn bộ bản đồ TP.HCM'; val.textContent = '✓'; return; }
+  const settled = done + failed >= total;
+  note.textContent = settled ? 'Tải tiếp khi có mạng' : 'Đang tải bản đồ TP.HCM';
+  val.textContent = `${pct}%`;
 }
 
 // ---------- start ----------
@@ -1300,6 +1373,7 @@ async function boot() {
     state.index = await (await fetch('tiles/index.json')).json();
     $('built').textContent = `OSM, ${state.index.built}`;
     $('builtNote').textContent = `Dữ liệu bản đồ © OpenStreetMap contributors (ODbL) · ${state.index.built}`;
+    saveMap();
   } catch {
     $('roadName').textContent = 'Không tải được dữ liệu bản đồ';
   }

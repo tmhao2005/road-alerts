@@ -9,7 +9,8 @@ and on a glanceable screen, and gets more accurate every trip as drivers correct
 source, and the core speed function exists with a coordinate tester for TP.HCM. The web
 app is the product for now, used by the household from the iPhone home screen: it opens on
 a map of where the car is, turns into a forward road view with the limit, lights ahead and
-voice when the car drives off, and works offline once its tiles are loaded. The next piece
+voice when the car drives off, and keeps the whole TP.HCM map on the phone (~16 MB, fetched
+in the background) so it works without signal. The next piece
 of work is making a driver's answers to Sai correct their own phone (see
 [Next steps](#next-steps)).
 
