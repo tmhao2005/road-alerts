@@ -401,6 +401,7 @@ function startPositions() {
     return;
   }
   if (!('geolocation' in navigator)) { gpsStatus('Máy không có GPS'); return; }
+  state.watchedAt = performance.now();
   state.watch = navigator.geolocation.watchPosition(
     (p) => onFix({
       lon: p.coords.longitude,
@@ -1014,7 +1015,32 @@ document.addEventListener('visibilitychange', () => {
   if (!state.rested) keepAwake();
   // Away this long, the trip that was running is over; the next movement starts another.
   if (state.mode === 'drive' && state.hiddenAt && Date.now() - state.hiddenAt > GAP_MS) toHome();
+  wake(state.hiddenAt ? Date.now() - state.hiddenAt : 0);
 });
+
+// iOS stops a web page outright while the screen is off. Back on, the position watch it
+// had can stay silent for good without reporting an error, and the sound stays suspended:
+// the app looks alive and does nothing. So both are started again.
+function wake(away) {
+  if (state.watch != null) { stopPositions(); startPositions(); }
+  if (state.audio && state.audio.state !== 'running') {
+    state.audio.resume().catch(() => {});
+    // Some iOS versions only let the sound back on with a touch; then it asks for one.
+    setTimeout(() => { if (state.mode === 'drive' && !voiceLive()) showPill(); }, 800);
+  }
+  if (away < 5000) return;
+  // Off for longer than a glance, the car may be anywhere. Nothing about where it was
+  // carries over, and the limit is said again as soon as it is known.
+  forget();
+  if (state.mode === 'drive') toast('Màn hình tắt thì app tạm dừng');
+}
+
+// A watch can also go quiet with the page in view, again without an error. Half a minute
+// without a single fix, it is started again.
+setInterval(() => {
+  if (document.visibilityState !== 'visible' || state.watch == null) return;
+  if (performance.now() - Math.max(state.lastFixAt || 0, state.watchedAt || 0) > 30e3) { stopPositions(); startPositions(); }
+}, 5e3);
 
 // ---------- log ----------
 
