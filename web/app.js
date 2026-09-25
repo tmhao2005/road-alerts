@@ -66,6 +66,8 @@ const home = (x) => (x && x.scratch ? scratch : disk);
 const DEMOS = {
   q7: { title: 'Nguyễn Văn Linh, Q.7', sub: 'Đường đôi · đèn giao thông · biển 50', start: [106.716936, 10.729791], heading: 249, kmh: 45, seed: 3 },
   q1: { title: 'Phạm Ngũ Lão → Trần Hưng Đạo, Q.1', sub: 'Phố trung tâm · nhiều đèn', start: [106.694793, 10.769263], heading: 68, kmh: 35, seed: 5 },
+  // Driven along a route worked out by tools/demo-route.js, rather than wherever the road goes.
+  tamanh: { title: 'Đến BV Tâm Anh, Tân Bình', sub: 'Tân Kỳ Tân Quý · Cộng Hòa · 2 cầu vượt · 7 km', route: 'tamanh', kmh: 45, seed: 11 },
 };
 
 const WALK = 650;   // metres of road ahead the view and the shoulder signs look at
@@ -438,9 +440,15 @@ async function startDemo(key) {
   stopPositions();
   forget();
   state.demo = key;
-  await loadTiles(d.start[0], d.start[1]);
+  let route = null;
+  if (d.route) {
+    try { route = (await (await fetch(`demo/${d.route}.json`)).json()).route; } catch {}
+    if (!route) { toast('Không tìm thấy đường mô phỏng'); endDemo(); return; }
+  }
+  const start = route ? route[0] : d.start;
+  await loadTiles(start[0], start[1]);
   const getPieces = (lon, lat) => { ensureTiles(lon, lat); return piecesAround(lon, lat); };
-  const step = makeAutopilot({ getPieces, start: d.start, heading: d.heading, kmh: d.kmh, seed: d.seed });
+  const step = makeAutopilot({ getPieces, start, heading: d.heading, kmh: d.kmh, seed: d.seed, route });
   if (!step) { toast('Không tìm thấy đường mô phỏng'); endDemo(); return; }
   // One fix a second, like the phone's GPS, so the smoothing is seen doing real work.
   // ?park=60 stops the car after a minute, to see a trip end without waiting at a desk.
@@ -454,7 +462,7 @@ async function startDemo(key) {
     }
     onFix({ ...step(1), t: Date.now() });
   };
-  onFix({ lon: d.start[0], lat: d.start[1], acc: 5, heading: null, speed: 0, t: Date.now() });
+  onFix({ lon: start[0], lat: start[1], acc: 5, heading: null, speed: 0, t: Date.now() });
   toDrive({ auto: true });
   state.timer = setInterval(tick, 1000);
 }

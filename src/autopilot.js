@@ -1,13 +1,17 @@
 // A pretend car for checking the screen at a desk: it drives real roads from the tiles and
 // hands out fixes the way a phone does, one a second, with GPS-sized noise. It follows
 // the road it is on, keeps straight through junctions, stops at some lights, and turns
-// only where the road ends. Deterministic for a given seed, so a replay can be compared
-// run to run.
+// only where the road ends - or, given a route (src/route.js), drives that route to its
+// end and parks there. Deterministic for a given seed, so a replay can be compared run to
+// run.
 import { metres, metresPerDegree, bearing, angleBetween } from './geo.js';
 import { allowed } from './path.js';
 import { matchLive } from './live.js';
 
 const RANK = { motorway: 7, trunk: 6, primary: 5, secondary: 4, tertiary: 3, unclassified: 2, residential: 1 };
+// A route goes down lanes a wandering demo never takes, and nobody does 40 in those. km/h.
+const LANE = { tertiary: 40, unclassified: 30, residential: 25, living_street: 15, service: 15 };
+const same = (a, b) => a[0] === b[0] && a[1] === b[1];
 
 function rng(seed) {
   let s = seed >>> 0 || 1;
@@ -16,7 +20,8 @@ function rng(seed) {
 
 // getPieces(lon, lat): the road pieces around a point.
 // start: [lon, lat]; heading: compass degrees to set off in; kmh: cruising speed.
-export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, seed = 7, stopShare = 0.5, wait = 8 }) {
+// route: [[lon, lat], ...] of road vertices to follow instead; start and heading follow.
+export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, seed = 7, stopShare = 0.5, wait = 8, route = null }) {
   const random = rng(seed);
   const gauss = () => Math.sqrt(-2 * Math.log(random() || 1e-9)) * Math.cos(2 * Math.PI * random());
   const cruise = kmh / 3.6;
@@ -28,14 +33,38 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
     err.x = err.x * k + gauss() * j; err.y = err.y * k + gauss() * j;
   };
 
-  const m0 = matchLive(getPieces(start[0], start[1]), { lon: start[0], lat: start[1], acc: 30, heading, speed: 10 }, null);
-  if (!m0) return null;
-  let piece = m0.piece;
-  let sense = angleBetween(bearing(piece.c[m0.seg], piece.c[m0.seg + 1]), heading) <= 90 ? 1 : -1;
-  if (!allowed(piece, sense)) sense = -sense;
-  // Heading along the edge from vertex i to i + sense, `done` metres in.
-  let i = sense === 1 ? m0.seg : m0.seg + 1;
-  let done = metres(piece.c[i], [start[0], start[1]]);
+  // The piece and direction that take the car from vertex `at` to vertex `to`.
+  function onto(at, to) {
+    for (const pc of getPieces(at[0], at[1])) {
+      for (let k = 0; k < pc.c.length; k++) {
+        if (!same(pc.c[k], at)) continue;
+        for (const s of [1, -1]) if (pc.c[k + s] && same(pc.c[k + s], to) && allowed(pc, s)) return { piece: pc, k, s };
+      }
+    }
+    return null;
+  }
+
+  let piece, sense, i, done;
+  // On a route: the vertex the car last passed, and how far there is still to go.
+  let passed = 0;
+  const left = [];
+  if (route) {
+    const o = route.length > 1 && onto(route[0], route[1]);
+    if (!o) return null;
+    ({ piece, s: sense, k: i } = o);
+    done = 0;
+    left[route.length - 1] = 0;
+    for (let n = route.length - 2; n >= 0; n--) left[n] = left[n + 1] + metres(route[n], route[n + 1]);
+  } else {
+    const m0 = matchLive(getPieces(start[0], start[1]), { lon: start[0], lat: start[1], acc: 30, heading, speed: 10 }, null);
+    if (!m0) return null;
+    piece = m0.piece;
+    sense = angleBetween(bearing(piece.c[m0.seg], piece.c[m0.seg + 1]), heading) <= 90 ? 1 : -1;
+    if (!allowed(piece, sense)) sense = -sense;
+    // Heading along the edge from vertex i to i + sense, `done` metres in.
+    i = sense === 1 ? m0.seg : m0.seg + 1;
+    done = metres(piece.c[i], [start[0], start[1]]);
+  }
   let v = 0;
   let waitUntil = 0, clock = 0, parked = false; // parked: a one-way road that just ends
   const decided = new Map(); // light id -> stops there or not
@@ -72,6 +101,15 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
       dist -= len - done;
       i += sense;
       done = 0;
+      if (route) {
+        passed++;
+        const next = route[passed + 1];
+        if (!next) { i -= sense; done = len; parked = true; return; }
+        if (piece.c[i + sense] && same(piece.c[i + sense], next)) continue;
+        const o = onto(piece.c[i], next);
+        if (o) { piece = o.piece; i = o.k; sense = o.s; continue; }
+        i -= sense; done = len; parked = true; return;
+      }
       if (i + sense < 0 || i + sense >= piece.c.length) {
         const n = nextPiece(piece.c[i], bearing(a, b));
         if (n) { piece = n.pc; i = n.k; sense = n.s; }
@@ -84,7 +122,9 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
   // The first light ahead on this piece, if the car should stop for it.
   function stopAhead() {
     let d = metres(piece.c[i], piece.c[i + sense]) - done;
-    for (let k = i + sense; k >= 0 && k < piece.c.length; k += sense) {
+    for (let k = i + sense, n = passed + 1; k >= 0 && k < piece.c.length; k += sense, n++) {
+      // A light on a road the route turns off before reaching is not the car's to stop at.
+      if (route && !(route[n] && same(piece.c[k], route[n]))) return null;
       for (const [vtx, facing, id] of piece.sg || []) {
         if (vtx !== k || (facing !== 0 && facing !== sense)) continue;
         if (!decided.has(id)) decided.set(id, random() < stopShare);
@@ -116,6 +156,10 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
         const target = Math.max(0, light.d - 4);
         v = Math.min(v, Math.sqrt(2 * 2.2 * target));
         if (target < 0.5 || v < 0.3) { v = 0; waitUntil = clock + wait; decided.set(light.id, false); }
+      } else if (route) {
+        // Easing down into a lane or up out of it, and braking to a stop at the end.
+        const cap = Math.min(cruise, (LANE[(piece.highway || '').replace('_link', '')] || Infinity) / 3.6, Math.sqrt(2 * 2.2 * (left[passed] - done)));
+        v = v > cap ? Math.max(cap, v - 2.5 * h) : Math.min(cap, v + 1.6 * h);
       } else v = Math.min(cruise, v + 1.6 * h);
       advance(v * h);
     }

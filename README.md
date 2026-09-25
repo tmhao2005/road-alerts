@@ -44,7 +44,9 @@ npm run serve    # prints the localhost and LAN addresses
 
 Under ⋯ on the home screen, the "Xem thử, không cần lái" drives run a pretend car along
 real roads, one fix a second like a phone's GPS, through the same matching, law and drawing
-as a real drive; `?demo=q1` starts one straight away. Real GPS needs https, so a real drive
+as a real drive; `?demo=q1` starts one straight away. Most wander wherever the road goes;
+`?demo=tamanh` drives a route instead, 7 km from Tân Thạnh street to Bệnh viện Tâm Anh on
+Phổ Quang, worked out over the tiles by `tools/demo-route.js`. Real GPS needs https, so a real drive
 uses the GitHub Pages link, which every push to `main` redeploys. In Safari, Share → Add to
 Home Screen turns it into an app with its own icon.
 
