@@ -7,6 +7,7 @@
 // Every decision about the number lives in the tested modules under src/; this file only
 // wires the phone to them and draws the result.
 import { tilesAround, matchLive, evaluate, makeStabiliser, TILE } from './src/live.js';
+import { matchTrack } from './src/track.js';
 import { reachFor, makeLightWatcher } from './src/lights.js';
 import { walkAhead, snapped, junctions, holdAt } from './src/path.js';
 import { limitsAhead } from './src/ahead.js';
@@ -646,7 +647,7 @@ function endDemo() {
 // A jump to somewhere else entirely: nothing about where the car was carries over.
 function forget() {
   Object.assign(state, {
-    fill: makeFixFiller(), motion: makeMotion(), prev: null, heading: null, headingBefore: null, current: null, last: null,
+    fill: makeFixFiller(), motion: makeMotion(), prev: null, track: null, trackFrom: null, trackFix: null, heading: null, headingBefore: null, current: null, last: null,
     stillScene: false, roadName: null, metaKey: null, stab: makeStabiliser(), shown: null, walk: null,
   });
   setHere(null);
@@ -691,7 +692,14 @@ function onFix(raw) {
 // parked phone may not send another for a while.
 function place(fix, step) {
   const pieces = piecesAround(fix.lon, fix.lat);
-  const m = matchLive(pieces, fix, state.prev, bike());
+  // The matcher on trial remembers every road near the car, not only the last one. A fix
+  // placed again when tiles arrive starts from the same memory as the first time.
+  let m;
+  if (trackOn()) {
+    if (fix !== state.trackFix) { state.trackFix = fix; state.trackFrom = state.track; }
+    m = matchTrack(pieces, fix, state.trackFrom, bike());
+    state.track = m ? m.memory : null;
+  } else m = matchLive(pieces, fix, state.prev, bike());
   if (m) {
     state.prev = m.piece;
     const r = evaluate(m.piece, state.index, state.vehicle);
@@ -958,7 +966,15 @@ function openSheet(id, open) {
 }
 function closeSheets() { openSheet('sheet', false); openSheet('settings', false); }
 $('more').onclick = () => openSheet('sheet', !$('sheet').classList.contains('open'));
-$('homeMore').onclick = () => { renderLogCount(); openSheet('settings', true); };
+$('homeMore').onclick = () => { renderLogCount(); renderMatch(); openSheet('settings', true); };
+// On trial: which road the car is on, worked out by src/track.js instead of matchLive.
+const trackOn = () => store.get('match', 'live') === 'track';
+function renderMatch() { $('matchVal').textContent = trackOn() ? 'Bật' : 'Tắt'; }
+$('matchTry').onclick = () => {
+  store.set('match', trackOn() ? 'live' : 'track');
+  Object.assign(state, { track: null, trackFrom: null, trackFix: null });
+  renderMatch();
+};
 $('scrim').onclick = closeSheets;
 
 function theme() {
@@ -1264,7 +1280,8 @@ function beginTrip() {
   if (state.demo || mock) trip.scratch = true;
   Object.assign(state, {
     trip, tripEnded: false, tripKept: false, tripFrom: null, window: [], still: makeStillness(stillFor()), lastTrace: 0, lastSave: 0,
-    trace: [{ type: 'start', t: trip.start, vehicle: state.vehicle, ua: navigator.userAgent }],
+    // Which matcher placed the car, so a trace from the trial can be told apart.
+    trace: [{ type: 'start', t: trip.start, vehicle: state.vehicle, match: trackOn() ? 'track' : 'live', ua: navigator.userAgent }],
   });
   renderCount();
 }
