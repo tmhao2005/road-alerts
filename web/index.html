@@ -36,7 +36,18 @@
       <div><b>Thêm vào Màn hình chính</b><small>Bấm Chia sẻ, rồi Thêm vào MH chính. Mở như một ứng dụng, không còn thanh Safari.</small></div>
       <button id="installX" class="x" type="button" aria-label="Đóng"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     </div>
-    <div id="demoTag" class="demo-tag" hidden>Mô phỏng</div>
+    <div id="demoTag" class="demo-bar" hidden>
+      <div class="db-row">
+        <span class="db-label">Mô phỏng</span>
+        <span id="demoKm" class="db-km"></span>
+        <button id="demoRate" class="db-rate" type="button" aria-label="Tốc độ phát"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M3 6.2v11.6c0 .8.9 1.3 1.6.8l7.4-5.8c.5-.4.5-1.2 0-1.6L4.6 5.4C3.9 4.9 3 5.4 3 6.2zm9.5 0v11.6c0 .8.9 1.3 1.6.8l7.4-5.8c.5-.4.5-1.2 0-1.6l-7.4-5.8c-.7-.5-1.6 0-1.6.8z"/></svg><span id="demoRateNum">1×</span></button>
+      </div>
+      <div id="demoTrack" class="db-track" hidden>
+        <div id="demoFill" class="db-fill"></div>
+        <div id="demoMarks"></div>
+        <div id="demoKnob" class="db-knob"></div>
+      </div>
+    </div>
     <button id="voicePill" class="pill voice-pill" type="button" hidden></button>
     <div id="hint" class="pill" hidden>Dừng xe để xem bản đồ</div>
     <div id="toast" class="pill" hidden></div>

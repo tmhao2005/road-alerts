@@ -49,7 +49,9 @@ as a real drive; `?demo=q1` starts one straight away. Most wander wherever the r
 Phổ Quang, worked out over the tiles by `tools/demo-route.js`. A demo runs on its own clock:
 `?x=4` plays it at 4x (2 and 8 too; the voice keeps quiet above 2x, since a recorded line
 cannot be hurried), and `?km=4.1` starts it 4.1 km in, just short of the Hoàng Hoa Thám
-flyover on the Tâm Anh route. Real GPS needs https, so a real drive
+flyover on the Tâm Anh route. The same can be done on the demo's bar: its button steps the
+speed, and dragging along it jumps, snapping to just before each flyover marked on it.
+Real GPS needs https, so a real drive
 uses the GitHub Pages link, which every push to `main` redeploys. In Safari, Share → Add to
 Home Screen turns it into an app with its own icon.
 

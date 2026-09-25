@@ -109,12 +109,46 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .install small { display: block; margin-top: 1px; font-size: 12.5px; line-height: 1.35; color: var(--muted); font-weight: 500; }
 .install .x { flex: none; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--well); color: var(--muted); display: grid; place-items: center; }
 
-.demo-tag {
-  align-self: center;
-  font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--muted); background: var(--glass); padding: 5px 11px; border-radius: 999px;
-  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+/* A demo drive, played like a video: how fast, and a bar along its route to jump about in,
+   with the flyovers marked. */
+.demo-bar {
+  align-self: stretch; margin: 0 26px; display: flex; flex-direction: column; gap: 6px;
+  padding: 7px 7px 8px 14px; border-radius: 18px;
+  background: var(--glass); border: 0.5px solid var(--glass-edge); box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
 }
+.demo-bar:not([hidden]) { animation: swap-in 0.5s var(--spring) both; }
+.db-row { display: flex; align-items: center; gap: 10px; }
+.db-label { font-size: 11.5px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+.db-km { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.db-rate {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 62px; justify-content: center;
+  border: 0; border-radius: 999px; padding: 6px 12px 6px 10px;
+  background: var(--well); color: var(--ink); font-size: 14.5px; font-weight: 800; font-variant-numeric: tabular-nums;
+  transition: transform 0.25s var(--spring), background-color 0.25s ease, color 0.25s ease;
+}
+.db-rate:active { transform: scale(0.9); }
+.db-rate.fast { background: var(--blue); color: #fff; }
+.db-rate span { display: inline-block; }
+.db-rate span.tick { animation: rate-in 0.4s var(--spring) both; }
+@keyframes rate-in { from { transform: translateY(70%); opacity: 0; } to { transform: none; opacity: 1; } }
+.db-track { position: relative; height: 22px; margin-right: 7px; touch-action: none; cursor: pointer; }
+.db-track::before { content: ''; position: absolute; left: 0; right: 0; top: 9px; height: 4px; border-radius: 2px; background: var(--line); }
+.db-fill { position: absolute; left: 0; top: 9px; height: 4px; width: 0; border-radius: 2px; background: var(--blue); }
+.db-mark {
+  position: absolute; top: 6px; width: 10px; height: 10px; margin-left: -5px; box-sizing: border-box;
+  border-radius: 2.5px; background: var(--card); border: 2px solid var(--faint);
+  transform: rotate(45deg); transition: transform 0.3s var(--spring), border-color 0.2s ease;
+}
+.db-mark.on { border-color: var(--blue); transform: rotate(45deg) scale(1.4); }
+.db-knob {
+  position: absolute; top: 2px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  transition: transform 0.25s var(--spring);
+}
+.db-track.dragging .db-knob { transform: scale(1.3); }
+.db-km.scrub { color: var(--ink); font-weight: 800; overflow: hidden; text-overflow: ellipsis; }
+.demo-bar.scrubbing .db-label { display: none; }
 .pill {
   align-self: center; display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border: 0; border-radius: 999px;
   background: rgba(28, 28, 30, 0.86); color: #fff; font-size: 14px; font-weight: 600; white-space: nowrap;

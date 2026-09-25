@@ -459,19 +459,23 @@ async function startDemo(key) {
   stopPositions();
   forget();
   state.demo = key;
-  let route = null;
+  let route = null, marks = [];
   if (d.route) {
-    try { route = (await (await fetch(`demo/${d.route}.json`)).json()).route; } catch {}
+    try { ({ route, marks = [] } = await (await fetch(`demo/${d.route}.json`)).json()); } catch {}
     if (!route) { toast('Không tìm thấy đường mô phỏng'); endDemo(); return; }
   }
   const start = route ? route[0] : d.start;
   await loadTiles(start[0], start[1]);
   const getPieces = (lon, lat) => { ensureTiles(lon, lat); return piecesAround(lon, lat); };
-  const step = makeAutopilot({ getPieces, start, heading: d.heading, kmh: d.kmh, seed: d.seed, route });
+  // Kept, so the drive can be started again and run on to an earlier point: the same seed
+  // drives the same drive.
+  state.pilotArgs = { getPieces, start, heading: d.heading, kmh: d.kmh, seed: d.seed, route };
+  const step = makeAutopilot(state.pilotArgs);
   if (!step) { toast('Không tìm thấy đường mô phỏng'); endDemo(); return; }
   // ?x=4 runs the drive at 4x; ?km=4.2 starts it 4.2 km in.
-  clock.start([1, 2, 4, 8].includes(Number(params.get('x'))) ? Number(params.get('x')) : 1);
+  clock.start(RATES.includes(Number(params.get('x'))) ? Number(params.get('x')) : 1);
   state.pilot = step;
+  setupDemoBar(marks);
   // One fix a demo second, like the phone's GPS, so the smoothing is seen doing real work.
   // ?park=60 stops the car after a minute, to see a trip end without waiting at a desk.
   const park = Number(params.get('park')) || 0, t0 = clock.ms();
@@ -482,7 +486,8 @@ async function startDemo(key) {
       onFix({ lon: parked.lon, lat: parked.lat, acc: 5, heading: null, speed: 0, t: clock.ms() });
       return;
     }
-    onFix({ ...step(1), t: clock.ms() });
+    onFix({ ...state.pilot(1), t: clock.ms() });
+    renderDemoBar();
   };
   onFix({ lon: start[0], lat: start[1], acc: 5, heading: null, speed: 0, t: clock.ms() });
   toDrive({ auto: true });
@@ -503,10 +508,20 @@ async function startDemo(key) {
 // is loaded ahead of it as it goes; a car driven on past the tiles it has would find no
 // road there and park.
 async function skipTo(metres) {
+  if (!state.pilot || state.skipping || !(metres >= 0)) return;
+  // Back: the drive starts over and runs on to there.
+  let fix = state.last;
+  if (metres < state.pilot.driven()) {
+    const again = makeAutopilot(state.pilotArgs);
+    if (!again) return;
+    state.pilot = again;
+    const a = state.pilotArgs, at = a.route ? a.route[0] : a.start;
+    fix = { lon: at[0], lat: at[1] };
+  }
   const step = state.pilot;
-  if (!step || state.skipping || !(metres > step.driven())) return;
+  if (!(metres > step.driven())) return;
   state.skipping = true;
-  let fix = state.last, n = 0;
+  let n = 0;
   while (step.driven() < metres && n < 7200 && state.pilot === step) {
     await ensureTiles(fix.lon, fix.lat);
     for (let k = 0; k < 20 && step.driven() < metres; k++, n++) fix = step(1);
@@ -518,7 +533,103 @@ async function skipTo(metres) {
   forget();
   state.lights = makeLightWatcher();
   onFix({ ...fix, t: clock.ms() });
+  renderDemoBar();
 }
+
+// ---------- demo controls ----------
+
+// A demo plays like a video: tap the speed to cycle it, drag along the bar to jump
+// anywhere in the drive, forward or back. The flyovers are marked on the bar, and the
+// knob snaps to just short of one, which is usually why the bar is being dragged.
+const RATES = [1, 2, 4, 8];
+const kmText = (m) => (m / 1000).toFixed(1).replace('.', ',');
+function setupDemoBar(marks) {
+  const step = state.pilot, total = step.routeLength;
+  state.demoMarks = total ? marks.filter((k) => k.at < total) : [];
+  $('demoTrack').hidden = !total;
+  const box = $('demoMarks');
+  box.innerHTML = '';
+  for (const k of state.demoMarks) {
+    const el = document.createElement('div');
+    el.className = 'db-mark';
+    el.style.left = `${(100 * k.at) / total}%`;
+    box.appendChild(el);
+  }
+  renderRate(false);
+  renderDemoBar();
+}
+
+function renderRate(animate = true) {
+  const num = $('demoRateNum');
+  num.textContent = `${clock.rate}×`;
+  $('demoRate').classList.toggle('fast', clock.rate > 1);
+  if (animate) { num.classList.remove('tick'); void num.offsetWidth; num.classList.add('tick'); }
+}
+
+// While a finger is on the bar, the bar shows where it will jump to, not where the car is.
+function renderDemoBar() {
+  const step = state.pilot;
+  if (!step || state.scrub) return;
+  const total = step.routeLength, done = step.driven();
+  $('demoKm').textContent = total ? `${kmText(done)} / ${kmText(total)} km` : `${kmText(done)} km`;
+  if (total) placeKnob(done / total);
+}
+function placeKnob(f) {
+  f = Math.max(0, Math.min(1, f));
+  $('demoFill').style.width = `${100 * f}%`;
+  $('demoKnob').style.left = `${100 * f}%`;
+}
+
+$('demoRate').onclick = () => {
+  clock.setRate(RATES[(RATES.indexOf(clock.rate) + 1) % RATES.length]);
+  renderRate();
+  // Above 2x the voice keeps quiet: cut what it was saying rather than let it trail behind.
+  if (clock.rate > 2 && state.voice) state.voice.cut();
+};
+
+// Where on the drive a finger on the bar means, snapped to just short of a flyover when
+// it is near one.
+function scrubAt(clientX) {
+  const r = $('demoTrack').getBoundingClientRect(), total = state.pilot.routeLength;
+  let at = Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * total;
+  let mark = null;
+  for (const k of state.demoMarks) if (Math.abs(at - k.at) < total * 0.035) mark = k;
+  if (mark) at = Math.max(0, mark.at - 250);
+  return { at, mark };
+}
+function showScrub({ at, mark }) {
+  const km = $('demoKm');
+  km.classList.add('scrub');
+  $('demoTag').classList.add('scrubbing');
+  km.textContent = mark ? `${mark.name}` : `Đến ${kmText(at)} km`;
+  [...$('demoMarks').children].forEach((el, i) => el.classList.toggle('on', state.demoMarks[i] === mark));
+  placeKnob(at / state.pilot.routeLength);
+}
+$('demoTrack').addEventListener('pointerdown', (e) => {
+  if (!state.pilot || !state.pilot.routeLength) return;
+  e.stopPropagation();
+  $('demoTrack').setPointerCapture(e.pointerId);
+  $('demoTrack').classList.add('dragging');
+  state.scrub = scrubAt(e.clientX);
+  showScrub(state.scrub);
+});
+$('demoTrack').addEventListener('pointermove', (e) => {
+  if (!state.scrub) return;
+  state.scrub = scrubAt(e.clientX);
+  showScrub(state.scrub);
+});
+const endScrub = () => {
+  if (!state.scrub) return;
+  const { at } = state.scrub;
+  state.scrub = null;
+  $('demoTrack').classList.remove('dragging');
+  $('demoKm').classList.remove('scrub');
+  $('demoTag').classList.remove('scrubbing');
+  [...$('demoMarks').children].forEach((el) => el.classList.remove('on'));
+  skipTo(at);
+};
+$('demoTrack').addEventListener('pointerup', endScrub);
+$('demoTrack').addEventListener('pointercancel', endScrub);
 
 function endDemo() {
   if (state.timer) clearInterval(state.timer);
@@ -1444,7 +1555,8 @@ async function boot() {
   renderLogCount();
   syncInstall();
   setInterval(() => { if (state.mode === 'home') renderGreet(); }, 60e3);
-  state.hud = makeHud($('scene'), { theme: theme(), bike: bike(), parkY: PARK_Y });
+  // ?flat draws flyovers no differently from the roads they cross, as the map first was.
+  state.hud = makeHud($('scene'), { theme: theme(), bike: bike(), parkY: PARK_Y, flat: params.has('flat') });
   state.hud.park(true, true);
   startLoop();
   keepAwake();

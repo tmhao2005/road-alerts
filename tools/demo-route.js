@@ -29,6 +29,17 @@ for (const [name, { from, to }] of Object.entries(ROUTES)) {
   if (!r) { console.error(`${name}: no route in these tiles`); process.exitCode = 1; continue; }
   let length = 0;
   for (let i = 1; i < r.length; i++) length += metres(r[i - 1], r[i]);
-  writeFileSync(`${OUT}/${name}.json`, JSON.stringify({ route: r, metres: Math.round(length) }));
+  // Where the route goes over a flyover, marked on the demo's bar to jump to.
+  const decks = new Map();
+  for (const p of pieces) if (p.bridge && p.h && p.h.some(([, h]) => h >= 4)) for (const c of p.c) decks.set(`${c[0]},${c[1]}`, p.name || 'Cầu vượt');
+  const marks = [];
+  let d = 0, on = null;
+  r.forEach((c, i) => {
+    if (i) d += metres(r[i - 1], c);
+    const deck = decks.get(`${c[0]},${c[1]}`) || null;
+    if (deck && deck !== on) marks.push({ at: Math.round(d), name: deck });
+    on = deck;
+  });
+  writeFileSync(`${OUT}/${name}.json`, JSON.stringify({ route: r, metres: Math.round(length), marks }));
   console.log(`${name}: ${(length / 1000).toFixed(1)} km, ${r.length} points -> ${OUT}/${name}.json`);
 }
