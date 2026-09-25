@@ -470,33 +470,76 @@ export function makeHud(canvas, options = {}) {
     for (const d of drawn) {
       const p = d.piece, lanes = parseInt(p.lanes, 10);
       if (!(lanes > 1)) continue;
-      const half = roadWidth(p) / 2, two = TWO_WAY(p);
+      const half = roadWidth(p) / 2, two = TWO_WAY(p), trim = trims(p);
       for (let k = 1; k < lanes; k++) {
         const off = -half + (k * 2 * half) / lanes;
-        if (two && k === lanes / 2) {
-          for (const run of d.runs) {
-            const near = cutAt(run, LANES_NEAR);
-            if (near.length > 1) dashes(near, off, null, theme.centre, 0.2);
-          }
-        } else paint(cam, xyOf(p), off, theme.lane, 0.16);
+        if (two && k === lanes / 2) paint(cam, xyOf(p), off, theme.centre, 0.2, trim, true);
+        else paint(cam, xyOf(p), off, theme.lane, 0.16, trim);
       }
     }
   }
 
-  function paint(cam, xy, off, colour, width) {
+  // How far short of each end a road's lines stop. Where it simply carries on into the next
+  // piece, not at all. At a junction, where the other roads' surfaces begin. At a fork,
+  // where the branches have parted: until then each branch's lines would run across the
+  // other's.
+  let touching = null;          // vertex -> [piece, index] over the loaded tiles
+  let trimmed = new WeakMap();  // piece -> [metres at its start, metres at its end]
+  const vkey = (c) => `${c[0]},${c[1]}`;
+  function trims(p) {
+    let t = trimmed.get(p);
+    if (t) return t;
+    if (!touching) {
+      touching = new Map();
+      for (const q of pool) q.c.forEach((c, i) => { const k = vkey(c); if (!touching.has(k)) touching.set(k, []); touching.get(k).push([q, i]); });
+    }
+    const half = roadWidth(p) / 2, n = p.c.length;
+    t = [[0, 1], [n - 1, n - 2]].map(([i, next]) => {
+      const at = p.c[i], k = metresPerDegree(at[1]);
+      const away = (c) => { const x = (c[0] - at[0]) * k.x, y = (c[1] - at[1]) * k.y, l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
+      // A piece on a tile edge is loaded from both tiles; it is one road, not two.
+      const seen = new Set([`${p.id}:${vkey(p.c[0])}`]), others = [];
+      for (const [q, j] of touching.get(vkey(at)) || []) {
+        const id = `${q.id}:${vkey(q.c[0])}`;
+        if (!seen.has(id)) { seen.add(id); others.push([q, j]); }
+      }
+      if (!others.length) return 0;
+      if (others.length === 1 && (others[0][1] === 0 || others[0][1] === others[0][0].c.length - 1)) return 0;
+      const mine = away(p.c[next]);
+      let stop = 0;
+      for (const [q, j] of others) {
+        const hq = roadWidth(q) / 2;
+        for (const o of [j - 1, j + 1]) {
+          if (o < 0 || o >= q.c.length) continue;
+          const u = away(q.c[o]), cos = mine[0] * u[0] + mine[1] * u[1];
+          const sin = Math.sqrt(Math.max(0, 1 - cos * cos));
+          stop = Math.max(stop, cos > 0 ? (half + hq) / Math.max(sin, 0.12) : hq + 1);
+        }
+      }
+      return Math.min(60, stop);
+    });
+    trimmed.set(p, t);
+    return t;
+  }
+
+  // One line along a road, dashed or solid, between its trims.
+  function paint(cam, xy, off, colour, width, trim, solid = false) {
     ctx.beginPath();
-    const step = DASH + SPACE, zMin = view.near + 2;
+    const step = solid ? DASH : DASH + SPACE, zMin = view.near + 2;
+    let total = 0;
+    for (let i = 0; i + 3 < xy.length; i += 2) total += Math.hypot(xy[i + 2] - xy[i], xy[i + 3] - xy[i + 1]);
+    const from = trim[0], to = total - trim[1];
     let s = 0;
     for (let i = 0; i + 3 < xy.length; i += 2) {
       const ax = xy[i], ay = xy[i + 1], bx = xy[i + 2], by = xy[i + 3];
       const len = Math.hypot(bx - ax, by - ay);
       if (!len) continue;
       const za = toCamera(cam, ax, ay)[1], zb = toCamera(cam, bx, by)[1];
-      if (Math.min(za, zb) > LANES_NEAR || Math.max(za, zb) < zMin) { s += len; continue; }
+      if (s + len < from || s > to || Math.min(za, zb) > LANES_NEAR || Math.max(za, zb) < zMin) { s += len; continue; }
       const ux = (bx - ax) / len, uy = (by - ay) / len, nx = uy, ny = -ux;
       // From the dash this stretch begins inside, so a dash carries on round a vertex.
       for (let t = -(s % step); t < len; t += step) {
-        const t0 = Math.max(0, t), t1 = Math.min(len, t + DASH);
+        const t0 = Math.max(0, t, from - s), t1 = Math.min(len, t + DASH, to - s);
         if (t1 <= t0) continue;
         const quad = [[t0, -width], [t1, -width], [t1, width], [t0, width]].map(([u, w]) =>
           toCamera(cam, ax + ux * u + nx * (off + w), ay + uy * u + ny * (off + w)));
@@ -507,42 +550,6 @@ export function makeHud(canvas, options = {}) {
         ctx.closePath();
       }
       s += len;
-    }
-    ctx.fillStyle = colour;
-    ctx.fill();
-  }
-
-  function cutAt(run, zMax) {
-    const out = [run[0]];
-    for (let i = 1; i < run.length; i++) {
-      const a = run[i - 1], b = run[i];
-      if (b[1] <= zMax) { out.push(b); continue; }
-      if (a[1] < zMax) { const f = (zMax - a[1]) / (b[1] - a[1]); out.push([a[0] + (b[0] - a[0]) * f, zMax]); }
-      break;
-    }
-    return out;
-  }
-
-  function dashes(pts, off, pattern, colour, width) {
-    ctx.beginPath();
-    let travelled = 0;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1];
-      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      if (len === 0) continue;
-      const ux = (b[0] - a[0]) / len, uz = (b[1] - a[1]) / len;
-      const nx = uz, nz = -ux;
-      const step = pattern ? pattern[0] + pattern[1] : len;
-      let s = pattern ? (step - (travelled % step)) % step : 0;
-      for (; s < len; s += step) {
-        const e = Math.min(len, s + (pattern ? pattern[0] : len));
-        const quad = [[s, -width], [e, -width], [e, width], [s, width]].map(([t, w]) =>
-          view.project(a[0] + ux * t + nx * (off + w), a[1] + uz * t + nz * (off + w)));
-        ctx.moveTo(quad[0][0], quad[0][1]);
-        for (let q = 1; q < 4; q++) ctx.lineTo(quad[q][0], quad[q][1]);
-        ctx.closePath();
-      }
-      travelled += len;
     }
     ctx.fillStyle = colour;
     ctx.fill();
@@ -720,7 +727,7 @@ export function makeHud(canvas, options = {}) {
       if (!origin) return;
       // A fresh list at every fix, but the pieces in it only change when a tile arrives or
       // the car moves on into another: only then are the arrows laid out again.
-      if (pieces.length !== pool.length || pieces[0] !== pool[0] || pieces[pieces.length - 1] !== pool[pool.length - 1]) layouts.clear();
+      if (pieces.length !== pool.length || pieces[0] !== pool[0] || pieces[pieces.length - 1] !== pool[pool.length - 1]) { layouts.clear(); touching = null; trimmed = new WeakMap(); }
       pool = pieces; poolAt = at;
       scene = { pieces: [], walk, piece };
       gather(1100, 550);
