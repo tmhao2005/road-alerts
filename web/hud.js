@@ -458,30 +458,58 @@ export function makeHud(canvas, options = {}) {
     ctx.fill();
   }
 
-  // Lane lines, only where the map counts the lanes; near the car only, where they help.
-  function drawLanes(cam) {
-    const walk = scene.walk;
-    if (!walk || view.px < 3) return;
-    for (const leg of walk.legs) {
-      const p = leg.piece;
-      const lanes = parseInt(p.lanes, 10);
+  // Lane lines, only where the map counts the lanes - never which lane goes where, which
+  // OSM almost never says. Painted on the road like the arrows: each dash is measured from
+  // its road's own start, so the dashes stay put and stream past as the car drives over
+  // them, rather than being measured from the car and riding along with it. And every
+  // counted road in view has them, so the street a turn leads into shows its lanes before
+  // the car is on it. Near the car only, where they help.
+  const LANES_NEAR = 220, DASH = 3, SPACE = 6;
+  function drawLanes(cam, drawn) {
+    if (view.px < 3) return;
+    for (const d of drawn) {
+      const p = d.piece, lanes = parseInt(p.lanes, 10);
       if (!(lanes > 1)) continue;
-      const pts = walk.pts.filter((_, i) => walk.dist[i] >= leg.start - 0.01 && walk.dist[i] <= leg.end + 0.01);
-      if (pts.length < 2) continue;
-      const xy = new Float64Array(pts.length * 2);
-      pts.forEach(([lon, lat], i) => { const q = toXY(lon, lat); xy[2 * i] = q[0]; xy[2 * i + 1] = q[1]; });
-      const half = roadWidth(p) / 2;
-      const two = TWO_WAY(p);
-      for (const run of clipRuns(cam, xy)) {
-        const near = cutAt(run, 220);
-        if (near.length < 2) continue;
-        for (let k = 1; k < lanes; k++) {
-          const off = -half + (k * 2 * half) / lanes;
-          const centre = two && k === lanes / 2;
-          dashes(near, off, centre ? null : [3, 6], centre ? theme.centre : theme.lane, centre ? 0.2 : 0.16);
-        }
+      const half = roadWidth(p) / 2, two = TWO_WAY(p);
+      for (let k = 1; k < lanes; k++) {
+        const off = -half + (k * 2 * half) / lanes;
+        if (two && k === lanes / 2) {
+          for (const run of d.runs) {
+            const near = cutAt(run, LANES_NEAR);
+            if (near.length > 1) dashes(near, off, null, theme.centre, 0.2);
+          }
+        } else paint(cam, xyOf(p), off, theme.lane, 0.16);
       }
     }
+  }
+
+  function paint(cam, xy, off, colour, width) {
+    ctx.beginPath();
+    const step = DASH + SPACE, zMin = view.near + 2;
+    let s = 0;
+    for (let i = 0; i + 3 < xy.length; i += 2) {
+      const ax = xy[i], ay = xy[i + 1], bx = xy[i + 2], by = xy[i + 3];
+      const len = Math.hypot(bx - ax, by - ay);
+      if (!len) continue;
+      const za = toCamera(cam, ax, ay)[1], zb = toCamera(cam, bx, by)[1];
+      if (Math.min(za, zb) > LANES_NEAR || Math.max(za, zb) < zMin) { s += len; continue; }
+      const ux = (bx - ax) / len, uy = (by - ay) / len, nx = uy, ny = -ux;
+      // From the dash this stretch begins inside, so a dash carries on round a vertex.
+      for (let t = -(s % step); t < len; t += step) {
+        const t0 = Math.max(0, t), t1 = Math.min(len, t + DASH);
+        if (t1 <= t0) continue;
+        const quad = [[t0, -width], [t1, -width], [t1, width], [t0, width]].map(([u, w]) =>
+          toCamera(cam, ax + ux * u + nx * (off + w), ay + uy * u + ny * (off + w)));
+        if (quad.some(([, z]) => z < zMin || z > LANES_NEAR)) continue;
+        const pts = quad.map(([x, z]) => view.project(x, z));
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let q = 1; q < 4; q++) ctx.lineTo(pts[q][0], pts[q][1]);
+        ctx.closePath();
+      }
+      s += len;
+    }
+    ctx.fillStyle = colour;
+    ctx.fill();
   }
 
   function cutAt(run, zMax) {
@@ -757,8 +785,10 @@ export function makeHud(canvas, options = {}) {
       // Overhead at rest sees more than the driving view does, as moving it by hand does.
       if ((moved || user.lift > 0.004) && poolAt) widen();
       const car = toCamera(cam, carX, carY);
-      drawArrows(cam, drawRoads(cam), dt);
-      if (oriented) { drawAhead(cam); drawLanes(cam); }
+      const drawn = drawRoads(cam);
+      drawArrows(cam, drawn, dt);
+      if (oriented) drawAhead(cam);
+      drawLanes(cam, drawn);
       drawFog();
       if (oriented) { drawCar(car, -user.turn); drawBoards(cam, carCam, now); } else drawDot(car);
     },

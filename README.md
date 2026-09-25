@@ -374,6 +374,10 @@ The road view is built into the test app from the phone's own map tiles:
 - **Turns follow the car, not the map.** Once the phone's heading swings off the road, the
   car on screen slows into the junction instead of carrying straight past it, the view
   turns with the phone's course, and the new road is joined on a curve.
+- **Lane lines are paint**, on every road in view whose lanes OSM counts: laid out in
+  metres from each road's own start, so they stream past under the car, and the street a
+  turn leads into shows its lanes before the car is on it. Which lane goes where is never
+  drawn, because OSM almost never says (see above).
 - **A shoulder sign is a promise**: it is decided by the same stabiliser as the badge, so
   a stretch the badge would ignore never gets a sign. When the badge changes, the sign just
   passed flies into it. Signs that line up stack on one pole, like plates on a real post.
