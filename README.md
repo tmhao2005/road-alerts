@@ -367,8 +367,12 @@ The road view is built into the test app from the phone's own map tiles:
   reaches a junction the app cannot see through. Lights and shoulder signs read the same
   walk ahead, so the three never disagree about which road comes next.
 - **Between GPS fixes the car keeps moving** along its matched road, and a fix that
-  disagrees is eased in over half a second. It never runs more than 1.5 s past the last fix
-  or round a junction on a guess, and it stands still at a light through GPS wobble.
+  disagrees is eased in from the car's current velocity, so nothing lurches once a second.
+  It never runs more than 1.5 s past the last fix or round a junction on a guess, and it
+  stands still at a light through GPS wobble.
+- **Turns follow the car, not the map.** Once the phone's heading swings off the road, the
+  car on screen slows into the junction instead of carrying straight past it, the view
+  turns with the phone's course, and the new road is joined on a curve.
 - **A shoulder sign is a promise**: it is decided by the same stabiliser as the badge, so
   a stretch the badge would ignore never gets a sign. When the badge changes, the sign just
   passed flies into it. Signs that line up stack on one pole, like plates on a real post.

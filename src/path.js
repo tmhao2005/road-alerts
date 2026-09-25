@@ -52,10 +52,13 @@ export function continuation(pieces, from, end, inBearing, bike = false) {
 //   lights     signals facing the car, nearest first: { id, crossing, dist, at }
 //   open       true if the road still goes on at the end, false if the walk stopped at a
 //              junction it could not see through or at the end of the road
+//   back       the vertex of the matched segment behind the car
 // bike: a xe máy, for streets that are one-way for cars only.
 export function walkAhead(pieces, match, heading, reach, from, bike = false) {
   let piece = match.piece;
   let sense = senseOn(piece, match.seg, heading);
+  // The vertex just passed, for anything that needs to know what is behind the car.
+  const back = piece.c[sense === 1 ? match.seg : match.seg + 1];
   let i = sense === 1 ? match.seg + 1 : match.seg;
   let at = from;
   let d = 0;
@@ -73,7 +76,7 @@ export function walkAhead(pieces, match, heading, reach, from, bike = false) {
         pts.push([at[0] + (next[0] - at[0]) * f, at[1] + (next[1] - at[1]) * f]);
         dist.push(reach);
         leg.end = reach;
-        return { pts, dist, legs, lights, open: true };
+        return { pts, dist, legs, lights, open: true, back };
       }
       d += step;
       prevPt = at;
@@ -87,7 +90,7 @@ export function walkAhead(pieces, match, heading, reach, from, bike = false) {
     }
     leg.end = d;
     const next = continuation(pieces, piece, at, bearing(prevPt || at, at), bike);
-    if (!next || visited.has(next.piece)) return { pts, dist, legs, lights, open: false };
+    if (!next || visited.has(next.piece)) return { pts, dist, legs, lights, open: false, back };
     visited.add(next.piece);
     piece = next.piece;
     sense = next.sense;
@@ -96,6 +99,47 @@ export function walkAhead(pieces, match, heading, reach, from, bike = false) {
     // The shared vertex was already walked on the previous piece.
     i = sense === 1 ? 1 : piece.c.length - 2;
   }
+}
+
+// Vertices where three or more road ends meet: the places a car can leave the road it is
+// on. A split where only the ward changes joins two ends and is not one. Pass one tile's
+// pieces: every road touching a vertex is in the tile holding it, and a piece crossing a
+// tile edge is repeated in both tiles, so pooling tiles would count it twice.
+export function junctions(pieces) {
+  const ends = new Map();
+  for (const pc of pieces) {
+    const n = pc.c.length;
+    pc.c.forEach(([lon, lat], i) => {
+      const k = `${lon},${lat}`;
+      ends.set(k, (ends.get(k) || 0) + (i > 0) + (i < n - 1));
+    });
+  }
+  const out = new Set();
+  for (const [k, e] of ends) if (e >= 3) out.add(k);
+  return out;
+}
+
+// How far along a walk the car on screen may be carried between fixes. Carried at its last
+// speed through a junction it is turning at, it overshoots down the old road and has to be
+// brought back across the corner when the next fix lands on the new one. So once the phone
+// says the car is swinging off the road, the guess stops at the junction and the turn
+// starts from the corner - or, already in the junction, the car is taken no further down
+// the old road at all.
+//
+// Only a swing that is growing counts. Driving straight, the guess carries on through:
+// stopping at every junction would make the car stutter along any city street. And coming
+// out of a bend the phone's heading lags the road it is already on, which looks the same
+// as leaving it except that the gap is closing.
+// isJunction([lon, lat]) -> boolean; heading, was: the phone's direction of travel at this
+// fix and the one before.
+export function holdAt(walk, isJunction, heading, was = null, { swing = 15, near = 12 } = {}) {
+  if (heading == null || walk.pts.length < 2) return Infinity;
+  const road = bearing(walk.pts[0], walk.pts[1]);
+  const off = angleBetween(road, heading);
+  if (off < swing || (was != null && off <= angleBetween(road, was))) return Infinity;
+  if (walk.back && isJunction(walk.back) && metres(walk.back, walk.pts[0]) < near) return 0;
+  for (let i = 1; i < walk.pts.length; i++) if (isJunction(walk.pts[i])) return walk.dist[i];
+  return Infinity;
 }
 
 // The point on a match's segment nearest the fix: where the car is drawn, and where the

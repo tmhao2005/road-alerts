@@ -32,17 +32,21 @@ export function matchLive(pieces, fix, prev, bike = false) {
       const { dist, t } = pointSegment(p, a, b);
       if (dist > maxDist) continue;
       let score = dist + (PENALTY[pc.highway] || 0);
+      let d = 0;
       if (moving) {
         const br = bearing(a, b);
         const way = travel(pc, bike);
-        let d;
         if (way === -1) d = angleBetween((br + 180) % 360, fix.heading);
         else if (way === 1) d = angleBetween(br, fix.heading);
         else d = Math.min(angleBetween(br, fix.heading), angleBetween((br + 180) % 360, fix.heading));
         score += d > 60 ? 40 : d * 0.25;
       }
-      if (prev && prev.id === pc.id) score -= 8;
-      else if (prev && prev.name && prev.name === pc.name) score -= 5;
+      // Holding on to the road is for GPS drifting toward a side street, not for a car that
+      // has already swung off it: kept through a turn, the screen stays on the old road a
+      // whole fix after the car has left it.
+      const held = d < 30;
+      if (held && prev && prev.id === pc.id) score -= 8;
+      else if (held && prev && prev.name && prev.name === pc.name) score -= 5;
       if (!best || score < best.score) best = { piece: pc, seg: i, t, dist, score };
     }
   }

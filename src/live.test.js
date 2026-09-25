@@ -18,6 +18,17 @@ test('at a junction a car heading east is on the side street', () => {
   assert.equal(m.piece.id, 2);
 });
 
+test('a car already swinging onto the side street is not held on the road it left', () => {
+  // 2 m past the junction, 4 m east of Main, heading north-east: halfway round the corner.
+  const fix = { lon: 106.70004, lat: 10.70502, acc: 5, heading: 50, speed: 4 };
+  assert.equal(matchLive([side, main], fix, main).piece.id, 2);
+});
+
+test('GPS drifting toward a side street keeps the car on its road', () => {
+  const fix = { lon: 106.70004, lat: 10.70502, acc: 5, heading: 10, speed: 4 };
+  assert.equal(matchLive([side, main], fix, main).piece.id, 1);
+});
+
 test('on a divided road, heading picks the correct carriageway', () => {
   const fix = { lon: 106.80005, lat: 10.705, acc: 5, speed: 15 };
   assert.equal(matchLive([northbound, southbound], { ...fix, heading: 0 }).piece.id, 3);

@@ -6,9 +6,9 @@
 // driving off, turns it into the drive screen; standing still long enough turns it back.
 // Every decision about the number lives in the tested modules under src/; this file only
 // wires the phone to them and draws the result.
-import { tilesAround, matchLive, evaluate, makeStabiliser } from './src/live.js';
+import { tilesAround, matchLive, evaluate, makeStabiliser, TILE } from './src/live.js';
 import { reachFor, makeLightWatcher } from './src/lights.js';
-import { walkAhead, snapped } from './src/path.js';
+import { walkAhead, snapped, junctions, holdAt } from './src/path.js';
 import { limitsAhead } from './src/ahead.js';
 import { makeMotion } from './src/motion.js';
 import { makeAutopilot } from './src/autopilot.js';
@@ -471,7 +471,7 @@ function endDemo() {
 // A jump to somewhere else entirely: nothing about where the car was carries over.
 function forget() {
   Object.assign(state, {
-    fill: makeFixFiller(), motion: makeMotion(), prev: null, heading: null, current: null, last: null,
+    fill: makeFixFiller(), motion: makeMotion(), prev: null, heading: null, headingBefore: null, current: null, last: null,
     stillScene: false, roadName: null, metaKey: null, stab: makeStabiliser(), shown: null, walk: null,
   });
   setHere(null);
@@ -569,7 +569,9 @@ function ahead(pieces, m, fix, shownValue) {
     return;
   }
   const walk = walkAhead(pieces, m, state.heading, WALK, from, bike());
-  state.motion.fix(now, walk.pts, fix.speed);
+  const stop = holdAt(walk, isJunction, state.heading, state.headingBefore);
+  state.headingBefore = state.heading;
+  state.motion.fix(now, walk.pts, fix.speed, stop, fix.heading);
   // Parked, nothing is ahead either: the car is on a map, not on its way somewhere.
   if (state.mode === 'home') {
     state.walk = null;
@@ -641,6 +643,16 @@ function ensureTiles(lon, lat) {
 }
 
 const loadTiles = (lon, lat) => ensureTiles(lon, lat);
+
+// Where a car can leave the road it is on, worked out once per tile from its own pieces.
+const junctionsOf = new WeakMap();
+function isJunction([lon, lat]) {
+  const t = state.tiles.get(`${Math.floor(lon / TILE)}_${Math.floor(lat / TILE)}`);
+  if (!Array.isArray(t)) return false;
+  let j = junctionsOf.get(t);
+  if (!j) junctionsOf.set(t, (j = junctions(t)));
+  return j.has(`${lon},${lat}`);
+}
 
 function piecesAround(lon, lat) {
   const out = [];

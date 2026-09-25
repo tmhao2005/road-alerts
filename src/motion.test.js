@@ -28,7 +28,7 @@ test('it never runs past the end of the walked road', () => {
 });
 
 test('a fix that disagrees is eased in, not jumped to', () => {
-  const mo = makeMotion({ ease: 0.45 });
+  const mo = makeMotion();
   mo.fix(0, road(0), 10);
   mo.at(1);
   mo.fix(1, road(16), 10); // the guess said 10 m, GPS says 16 m
@@ -36,6 +36,26 @@ test('a fix that disagrees is eased in, not jumped to', () => {
   assert.ok(Math.abs(right - 10) < 0.2, 'no jump at the moment of the fix');
   const later = north(mo.at(2.5)) - 15; // 1.5 s of travel from 16 m
   assert.ok(Math.abs(later - 16) < 0.5, `${later.toFixed(2)}`);
+});
+
+// On screen, the car's speed over one frame either side of a moment.
+const pace = (mo, t, h = 1 / 30) => (north(mo.at(t + h)) - north(mo.at(t))) / h;
+
+test('a fix that disagrees does not change the car\'s speed in a single frame', () => {
+  const mo = makeMotion();
+  mo.fix(0, road(0), 10);
+  const before = pace(mo, 1 - 1 / 30);
+  mo.fix(1, road(12), 10); // GPS is 2 m ahead of the guess
+  const after = pace(mo, 1);
+  assert.ok(Math.abs(after - before) < 1, `${before.toFixed(1)} -> ${after.toFixed(1)} m/s`);
+});
+
+test('told where to stop, the car slows into that point and never passes it', () => {
+  const mo = makeMotion();
+  mo.fix(0, road(0), 10, 6);
+  assert.ok(pace(mo, 0) > 8, 'leaves at its own speed');
+  assert.ok(north(mo.at(1.5)) <= 6.01);
+  assert.ok(north(mo.at(1.5)) > 5);
 });
 
 test('a big jump is taken at once rather than slid across the map', () => {
