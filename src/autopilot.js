@@ -66,6 +66,7 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
     done = metres(piece.c[i], [start[0], start[1]]);
   }
   let v = 0;
+  let driven = 0; // metres, so a demo can be run on to a point along its drive
   let waitUntil = 0, clock = 0, parked = false; // parked: a one-way road that just ends
   const decided = new Map(); // light id -> stops there or not
 
@@ -144,7 +145,7 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
   }
 
   // Advance by dt seconds and return a fix, shaped like the phone's.
-  return function step(dt = 1) {
+  function step(dt = 1) {
     const substeps = Math.max(1, Math.round(dt / 0.1));
     for (let n = 0; n < substeps; n++) {
       const h = dt / substeps;
@@ -162,6 +163,7 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
         v = v > cap ? Math.max(cap, v - 2.5 * h) : Math.min(cap, v + 1.6 * h);
       } else v = Math.min(cruise, v + 1.6 * h);
       advance(v * h);
+      driven += v * h;
     }
     const { at, heading: hd } = position();
     const k = metresPerDegree(at[1]);
@@ -173,5 +175,9 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
       heading: v > 0.5 ? (hd + gauss() * 3 + 360) % 360 : null,
       speed: Math.max(0, v + gauss() * 0.3),
     };
-  };
+  }
+  step.driven = () => driven;
+  // The length of the route, or null for a car that just wanders.
+  step.routeLength = route ? left[0] : null;
+  return step;
 }

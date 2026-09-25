@@ -70,3 +70,13 @@ test('it does not stop for a light on a road the route leaves before reaching it
   for (let t = 0; t < 40; t++) { const f = step(1); if (t > 5 && f.lat < LAT + 0.00199) slowest = Math.min(slowest, f.speed); }
   assert.ok(slowest > 8, `slowed to ${slowest.toFixed(1)} m/s on Main`);
 });
+
+test('it keeps count of how far it has driven, so a demo can be run on to a point', () => {
+  const route = [[LON, LAT], [LON, LAT + 0.005], [LON + 0.004, LAT + 0.005]];
+  const step = makeAutopilot({ getPieces: () => [up, across, side], route, kmh: 36, noise: 0, stopShare: 0 });
+  assert.ok(Math.abs(step.routeLength - (metres(route[0], route[1]) + metres(route[1], route[2]))) < 0.01);
+  let f;
+  while (step.driven() < 300) f = step(1);
+  const along = metres(route[0], [f.lon, f.lat]);
+  assert.ok(Math.abs(along - step.driven()) < 0.5, `${along.toFixed(1)} m along, ${step.driven().toFixed(1)} m counted`);
+});

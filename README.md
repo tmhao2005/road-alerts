@@ -46,7 +46,10 @@ Under ⋯ on the home screen, the "Xem thử, không cần lái" drives run a pr
 real roads, one fix a second like a phone's GPS, through the same matching, law and drawing
 as a real drive; `?demo=q1` starts one straight away. Most wander wherever the road goes;
 `?demo=tamanh` drives a route instead, 7 km from Tân Thạnh street to Bệnh viện Tâm Anh on
-Phổ Quang, worked out over the tiles by `tools/demo-route.js`. Real GPS needs https, so a real drive
+Phổ Quang, worked out over the tiles by `tools/demo-route.js`. A demo runs on its own clock:
+`?x=4` plays it at 4x (2 and 8 too; the voice keeps quiet above 2x, since a recorded line
+cannot be hurried), and `?km=4.1` starts it 4.1 km in, just short of the Hoàng Hoa Thám
+flyover on the Tâm Anh route. Real GPS needs https, so a real drive
 uses the GitHub Pages link, which every push to `main` redeploys. In Safari, Share → Add to
 Home Screen turns it into an app with its own icon.
 

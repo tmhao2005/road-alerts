@@ -70,6 +70,25 @@ const DEMOS = {
   tamanh: { title: 'Đến BV Tâm Anh, Tân Bình', sub: 'Tân Kỳ Tân Quý · Cộng Hòa · 2 cầu vượt · 7 km', route: 'tamanh', kmh: 45, seed: 11 },
 };
 
+// The clock a drive runs on. A real drive runs on the phone's own clocks. A demo keeps one
+// of its own that can run faster, or jump ahead to the part worth seeing, and whatever
+// times the car reads it: the fixes, the motion between them, the wait before a speeding
+// warning, the stillness that ends a trip. Only the voice stays on real time; it cannot be
+// hurried, so above 2x it keeps quiet rather than fall behind the car.
+const clock = {
+  rate: 1,
+  demo: null, // { base: demo ms at `perf`, perf: performance.now() then }
+  // Milliseconds, as Date.now().
+  ms() { return this.demo ? this.demo.base + (performance.now() - this.demo.perf) * this.rate : Date.now(); },
+  // Seconds on a timeline that only goes forward, for motion and drawing; t is a
+  // requestAnimationFrame or performance.now() time.
+  s(t = performance.now()) { return this.demo ? (this.demo.base + (t - this.demo.perf) * this.rate) / 1000 : t / 1000; },
+  start(rate) { this.demo = { base: Date.now(), perf: performance.now() }; this.rate = rate; },
+  stop() { this.demo = null; this.rate = 1; },
+  setRate(rate) { if (this.demo) this.demo = { base: this.ms(), perf: performance.now() }; this.rate = rate; },
+  skip(ms) { if (this.demo) this.demo.base += ms; },
+};
+
 const WALK = 650;   // metres of road ahead the view and the shoulder signs look at
 const SHOW_LIGHTS = 380;
 // Parked, the car sits in the middle of the map the road card and the panel leave uncovered.
@@ -450,27 +469,63 @@ async function startDemo(key) {
   const getPieces = (lon, lat) => { ensureTiles(lon, lat); return piecesAround(lon, lat); };
   const step = makeAutopilot({ getPieces, start, heading: d.heading, kmh: d.kmh, seed: d.seed, route });
   if (!step) { toast('Không tìm thấy đường mô phỏng'); endDemo(); return; }
-  // One fix a second, like the phone's GPS, so the smoothing is seen doing real work.
+  // ?x=4 runs the drive at 4x; ?km=4.2 starts it 4.2 km in.
+  clock.start([1, 2, 4, 8].includes(Number(params.get('x'))) ? Number(params.get('x')) : 1);
+  state.pilot = step;
+  // One fix a demo second, like the phone's GPS, so the smoothing is seen doing real work.
   // ?park=60 stops the car after a minute, to see a trip end without waiting at a desk.
-  const park = Number(params.get('park')) || 0, t0 = Date.now();
-  let parked = null;
+  const park = Number(params.get('park')) || 0, t0 = clock.ms();
+  let parked = null, next = t0 + 1000;
   const tick = () => {
-    if (park && Date.now() - t0 > park * 1000) {
+    if (park && clock.ms() - t0 > park * 1000) {
       parked = parked || state.last;
-      onFix({ lon: parked.lon, lat: parked.lat, acc: 5, heading: null, speed: 0, t: Date.now() });
+      onFix({ lon: parked.lon, lat: parked.lat, acc: 5, heading: null, speed: 0, t: clock.ms() });
       return;
     }
-    onFix({ ...step(1), t: Date.now() });
+    onFix({ ...step(1), t: clock.ms() });
   };
-  onFix({ lon: start[0], lat: start[1], acc: 5, heading: null, speed: 0, t: Date.now() });
+  onFix({ lon: start[0], lat: start[1], acc: 5, heading: null, speed: 0, t: clock.ms() });
   toDrive({ auto: true });
-  state.timer = setInterval(tick, 1000);
+  // Checked often, so a change of speed takes at once; a few at most per check, so a tab
+  // that was asleep does not come back to a burst of them.
+  state.timer = setInterval(() => {
+    if (state.skipping) return;
+    for (let n = 0; n < 4 && clock.ms() >= next; n++) { next += 1000; tick(); }
+    if (clock.ms() >= next) next = clock.ms() + 1000;
+  }, 40);
+  state.demoNext = (at) => { next = at; };
+  const km = Number(params.get('km'));
+  if (km > 0) skipTo(km * 1000);
+}
+
+// Jump the demo car to `metres` into its drive: it drives there unseen and unheard, then
+// the screen picks up from where it is, as it does after the screen has been off. The map
+// is loaded ahead of it as it goes; a car driven on past the tiles it has would find no
+// road there and park.
+async function skipTo(metres) {
+  const step = state.pilot;
+  if (!step || state.skipping || !(metres > step.driven())) return;
+  state.skipping = true;
+  let fix = state.last, n = 0;
+  while (step.driven() < metres && n < 7200 && state.pilot === step) {
+    await ensureTiles(fix.lon, fix.lat);
+    for (let k = 0; k < 20 && step.driven() < metres; k++, n++) fix = step(1);
+  }
+  state.skipping = false;
+  if (state.pilot !== step || !n) return;
+  clock.skip(n * 1000);
+  state.demoNext(clock.ms() + 1000);
+  forget();
+  state.lights = makeLightWatcher();
+  onFix({ ...fix, t: clock.ms() });
 }
 
 function endDemo() {
   if (state.timer) clearInterval(state.timer);
   state.timer = null;
   state.demo = null;
+  state.pilot = null;
+  clock.stop();
   forget();
   $('roadName').textContent = 'Đang tìm vị trí…';
   $('roadMeta').textContent = '';
@@ -565,7 +620,7 @@ function ahead(pieces, m, fix, shownValue) {
   const stopped = !(fix.speed > 0.8);
   if (stopped && state.stillScene) return;
   state.stillScene = stopped;
-  const now = performance.now() / 1000;
+  const now = clock.s();
   const from = snapped(m);
   // A phone that has not moved yet has no direction, so nothing is "ahead": the map is
   // drawn north-up around the car, with no road picked out and no shoulder signs, until
@@ -766,7 +821,7 @@ function arrive(max, tier) {
     setTier(tier);
     $('tier').animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 400, delay: 120, easing: 'ease-out', fill: 'backwards' });
   };
-  const now = performance.now() / 1000;
+  const now = clock.s();
   const from = state.lastRect && state.lastRect.max === max && now - state.lastRect.t < 5 ? state.lastRect : null;
   if (!from || document.hidden) { land(); return; }
   fly(boxOf(sign), { x: from.x, y: from.y, w: from.size, h: from.size }, true, max, land);
@@ -859,15 +914,15 @@ function startLoop() {
   let last = performance.now(), drawn = 0, lastPose = null;
   const loop = (ts) => {
     state.raf = requestAnimationFrame(loop);
-    const now = ts / 1000;
-    const dt = Math.min(0.1, (ts - last) / 1000);
+    const now = clock.s(ts);
+    const dt = Math.min(0.1, (ts - last) / 1000) * clock.rate;
     if (ts - drawn < 32) return;
     last = ts;
     const pose = state.motion.at(now);
     const still = lastPose && pose && Math.abs(pose.lon - lastPose.lon) < 1e-8 && Math.abs(pose.lat - lastPose.lat) < 1e-8 && pose.bearing === lastPose.bearing;
     const settling = now - state.sceneAt < 1.2 || state.hud.busy() || state.redraw;
     if (!still || settling || !lastPose) {
-      state.hud.draw(pose, now, (ts - drawn) / 1000);
+      state.hud.draw(pose, now, ((ts - drawn) / 1000) * clock.rate);
       drawn = ts;
       lastPose = pose;
       state.redraw = false;
@@ -915,7 +970,7 @@ const voiceLive = () => !!(state.audio && state.audio.state === 'running');
 
 // Takes a rendered line, or the id of one of the fixed ones.
 function say(line, opts) {
-  if (!state.voice) return;
+  if (!state.voice || clock.rate > 2) return;
   state.voice.cue(typeof line === 'string' ? FIXED.find((f) => f.id === line) : line, opts);
 }
 
@@ -998,8 +1053,8 @@ function checkOver(kmh) {
     return;
   }
   // Warn once per excursion, after it has lasted a few seconds - not on every GPS blip.
-  if (!state.overSince) state.overSince = Date.now();
-  if (!state.overSaid && Date.now() - state.overSince > 3000) {
+  if (!state.overSince) state.overSince = clock.ms();
+  if (!state.overSaid && clock.ms() - state.overSince > 3000) {
     say('over', { chime: [880, 880] });
     state.overSaid = true;
   }
@@ -1145,7 +1200,7 @@ function follow(fix, kmh) {
     state.tripFrom = state.tripFrom || { lon: fix.lon, lat: fix.lat };
     if (!stood([state.tripFrom, { lon: fix.lon, lat: fix.lat, kmh }])) keepTrip();
   }
-  const now = Date.now();
+  const now = clock.ms();
   state.window.push({ t: now, lon: +fix.lon.toFixed(6), lat: +fix.lat.toFixed(6), kmh, shown: state.shown ? state.shown.limit.max : null });
   while (state.window.length && now - state.window[0].t > 30e3) state.window.shift();
   if (state.still({ t: now, lon: fix.lon, lat: fix.lat, kmh }).ended) toHome();
