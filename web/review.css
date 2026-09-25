@@ -80,7 +80,8 @@
 .dots { display: flex; justify-content: center; gap: 2px; margin: 12px 0 0; }
 .dots button { border: 0; background: none; padding: 8px 4px; }
 .dots i { display: block; width: 7px; height: 7px; border-radius: 4px; background: var(--line); transition: width 0.45s var(--spring), background-color 0.3s ease; }
-.dots .done i { background: var(--rep-fg); }
+/* Not .done: that is the finished panel's class, and its auto margins would push the dots apart. */
+.dots .answered i { background: var(--rep-fg); }
 .dots .on i { width: 22px; background: var(--ink); }
 
 /* The deck runs sideways, and the next card's edge shows at the right: an edge you can

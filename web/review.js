@@ -239,7 +239,7 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
   }
 
   function renderDots() {
-    dots.innerHTML = list.map((r, i) => `<button type="button" aria-label="Chỗ ${i + 1}" class="${i === idx ? 'on' : ''} ${r.answer != null && r.answer !== 'unsure' ? 'done' : ''}"><i></i></button>`).join('');
+    dots.innerHTML = list.map((r, i) => `<button type="button" aria-label="Chỗ ${i + 1}" class="${i === idx ? 'on' : ''} ${r.answer != null && r.answer !== 'unsure' ? 'answered' : ''}"><i></i></button>`).join('');
   }
   dots.onclick = (e) => {
     const b = e.target.closest('button');
