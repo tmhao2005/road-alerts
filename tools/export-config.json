@@ -4,7 +4,7 @@
   "area_tags": ["landuse", "boundary"],
   "include_tags": [
     "highway", "name", "ref", "lanes", "oneway", "oneway:motorcycle", "junction", "expressway",
-    "maxspeed", "maxspeed:forward", "maxspeed:backward",
+    "maxspeed", "maxspeed:forward", "maxspeed:backward", "bridge", "layer",
     "landuse", "boundary", "admin_level",
     "crossing", "direction", "traffic_signals:direction"
   ]

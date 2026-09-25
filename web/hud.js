@@ -60,6 +60,12 @@ export function makeHud(canvas, options = {}) {
   let view = null, W = 0, H = 0, dpr = 1;
   let origin = null, m = null;
   const local = new WeakMap(); // piece -> Float64Array of x, y metres from origin
+  // Flyovers the map apps' way, everywhere they have not modelled a city in 3D: flat, the
+  // road on the bridge drawn after the road it crosses. options.flat draws them like any
+  // other road. A bridge over a road is one the tiles give heights to; a bridge over a kênh
+  // crosses nothing drawn, and edging it would only outline both of its ends across the road.
+  const layers = !options.flat;
+  const deck = (p) => !!(layers && p && p.bridge && p.layer >= 1 && p.h);
   const extent = new WeakMap(); // piece -> [w, s, e, n] in degrees
   let scene = { pieces: [], walk: null, piece: null };
   const boards = new Map();    // shoulder items by id, kept a moment after they are passed
@@ -256,7 +262,8 @@ export function makeHud(canvas, options = {}) {
   }
 
   // A road as a filled ribbon: both edges offset on the ground, then projected, so it
-  // narrows into the distance the way a real road does.
+  // narrows into the distance the way a real road does. A point may carry a half width of
+  // its own, added to `half`, as a flyover joined up from pieces of different widths does.
   function ribbonPath(pts, half, shift = 0) {
     const n = pts.length;
     const left = [], right = [];
@@ -271,7 +278,7 @@ export function makeHud(canvas, options = {}) {
       const nl = Math.hypot(nx, nz) || 1;
       nx /= nl; nz /= nl;
       const miter = Math.min(2.5, 1 / Math.max(0.4, nx * d1z - nz * d1x));
-      const o = shift, h = half * miter;
+      const o = shift, h = ((b[2] || 0) + half) * miter;
       left.push(view.project(b[0] + nx * (o - h), b[1] + nz * (o - h)));
       right.push(view.project(b[0] + nx * (o + h), b[1] + nz * (o + h)));
     }
@@ -320,8 +327,9 @@ export function makeHud(canvas, options = {}) {
     ctx.fillRect(0, 0, W, H);
   }
 
+  // Returns the roads drawn, and the flyovers left to draw over them.
   function drawRoads(cam) {
-    const drawn = [];
+    const drawn = [], raised = [];
     for (const piece of scene.pieces) {
       const xy = xyOf(piece);
       // Cheap reject on the piece's extent before any clipping.
@@ -338,7 +346,7 @@ export function makeHud(canvas, options = {}) {
       if (rank <= 1 && minZ > 500 / Math.min(1, view.zoom)) continue;
       if (rank === 0 && view.px < 0.9) continue;
       const runs = clipRuns(cam, xy);
-      if (runs.length) drawn.push({ piece, runs, rank, half: Math.max(roadWidth(piece) / 2, minHalf(rank)) });
+      if (runs.length) (deck(piece) ? raised : drawn).push({ piece, runs, rank, half: Math.max(roadWidth(piece) / 2, minHalf(rank)) });
     }
     drawn.sort((a, b) => a.rank - b.rank);
     // All casings first, then all surfaces, so junctions merge instead of overlapping;
@@ -363,7 +371,80 @@ export function makeHud(canvas, options = {}) {
         ctx.fill();
       }
     }
-    return drawn;
+    return { drawn, raised };
+  }
+
+  // A flyover's pieces joined end to end into one line, so its ribbon bends where they meet
+  // instead of leaving a notch on the outside of the bend. Each point carries its road's
+  // half width; where three or more pieces meet, they are left apart.
+  function chains(group) {
+    const lines = [], seen = new Set();
+    const k = (p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`;
+    for (const d of group) {
+      for (const run of d.runs) {
+        // A piece on a tile edge is loaded from both tiles: the same run twice, which would
+        // look like a junction where there is only a joint.
+        const id = `${k(run[0])}|${k(run[run.length - 1])}|${run.length}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        lines.push({ pts: run.map((p) => [p[0], p[1], d.half]), rank: d.rank });
+      }
+    }
+    const degree = new Map();
+    for (const l of lines) for (const p of [l.pts[0], l.pts[l.pts.length - 1]]) degree.set(k(p), (degree.get(k(p)) || 0) + 1);
+    for (let joined = true; joined;) {
+      joined = false;
+      for (let i = 0; i < lines.length && !joined; i++) {
+        for (let j = 0; j < lines.length && !joined; j++) {
+          if (i === j) continue;
+          const a = lines[i], b = lines[j], end = k(a.pts[a.pts.length - 1]);
+          if (degree.get(end) !== 2) continue;
+          let next = null;
+          if (k(b.pts[0]) === end) next = b.pts;
+          else if (k(b.pts[b.pts.length - 1]) === end) next = [...b.pts].reverse();
+          if (!next) continue;
+          const at = a.pts[a.pts.length - 1];
+          at[2] = Math.max(at[2], next[0][2]);
+          a.pts = a.pts.concat(next.slice(1));
+          a.rank = Math.max(a.rank, b.rank);
+          lines.splice(j, 1);
+          joined = true;
+        }
+      }
+    }
+    return lines;
+  }
+
+  // Flyovers, after everything on the ground, a layer at a time, in a road's own colours.
+  // The road beneath is cut by the flyover's edges where it passes under, and that is the
+  // whole effect: no height, so nothing to infer and nothing to get wrong where a ramp
+  // starts, and the flyover runs on from the road before it without a seam.
+  // lifted: the one-way arrows on flyovers, by piece.
+  function drawDecks(cam, raised, lifted) {
+    const levels = new Map();
+    for (const d of raised) {
+      const n = Math.max(1, d.piece.layer || 1);
+      if (!levels.has(n)) levels.set(n, []);
+      levels.get(n).push(d);
+    }
+    const extra = Math.max(1.1, 0.7 / view.px);
+    for (const n of [...levels.keys()].sort((a, b) => a - b)) {
+      const group = levels.get(n);
+      const lines = chains(group).sort((a, b) => a.rank - b.rank);
+      for (const pass of ['casing', 'surface']) {
+        for (let i = 0; i < lines.length;) {
+          const rank = lines[i].rank, minor = rank <= 1;
+          ctx.beginPath();
+          for (; i < lines.length && lines[i].rank === rank; i++) ribbonPath(lines[i].pts, pass === 'casing' ? extra : 0);
+          ctx.fillStyle = pass === 'casing' ? (minor ? theme.minorCasing : theme.casing) : (minor ? theme.minor : theme.road);
+          ctx.fill();
+        }
+      }
+      drawLanes(cam, group);
+      ctx.fillStyle = theme.arrow;
+      for (const d of group) for (const a of lifted.get(d.piece) || []) { ctx.globalAlpha = a.alpha; path(a.pts); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    }
   }
 
   // Arrows along one-way streets, as in the map apps, pointing the way this vehicle may
@@ -389,7 +470,7 @@ export function makeHud(canvas, options = {}) {
     return list;
   }
 
-  function drawArrows(cam, drawn, dt) {
+  function drawArrows(cam, drawn, raised, dt) {
     // About 200 px apart on screen, at least 70 m, in doubling steps so they do not all
     // move during a pinch.
     const gap = 70 * Math.pow(2, Math.max(0, Math.round(Math.log2(200 / view.px / 70))));
@@ -403,8 +484,9 @@ export function makeHud(canvas, options = {}) {
       laidOut = list;
     }
     // Only on roads drawn this frame: a side street is left out far away, and an arrow
-    // must not lie on bare ground where it was.
-    const roads = new Set(drawn.map((d) => d.piece));
+    // must not lie on bare ground where it was. One on a flyover waits for its deck.
+    const roads = new Set([...drawn, ...raised].map((d) => d.piece));
+    const lifted = new Map();
     const k = 1 - Math.exp(-dt / 0.12);
     fading = false;
     ctx.fillStyle = theme.arrow;
@@ -427,18 +509,29 @@ export function makeHud(canvas, options = {}) {
         Math.hypot(pts[2][0] - pts[4][0], pts[2][1] - pts[4][1]));
       const alpha = e.alpha * Math.max(0, Math.min(1, (size - 5) / 6));
       if (alpha < 0.02) continue;
+      if (deck(piece)) {
+        if (!lifted.has(piece)) lifted.set(piece, []);
+        lifted.get(piece).push({ pts, alpha });
+        continue;
+      }
       ctx.globalAlpha = alpha;
       path(pts);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+    return lifted;
   }
 
   // The road ahead, tinted, fading out where the walk stopped at a junction it could not
   // see through: past there the app does not know which way the car will go.
-  function drawAhead(cam) {
+  // A road ahead that stays on the ground is tinted with the ground, under any flyover it
+  // passes beneath. One that goes over a flyover is tinted after the flyovers, all of it:
+  // split in two, the halves would not meet where the flyover's own drawing starts.
+  // up: which of the two calls this is.
+  function drawAhead(cam, up = false) {
     const walk = scene.walk;
     if (!walk || walk.pts.length < 2) return;
+    if (!!(walk.legs && walk.legs.some((l) => deck(l.piece))) !== up) return;
     const xy = new Float64Array(walk.pts.length * 2);
     walk.pts.forEach(([lon, lat], i) => { const p = toXY(lon, lat); xy[2 * i] = p[0]; xy[2 * i + 1] = p[1]; });
     const runs = clipRuns(cam, xy);
@@ -792,10 +885,12 @@ export function makeHud(canvas, options = {}) {
       // Overhead at rest sees more than the driving view does, as moving it by hand does.
       if ((moved || user.lift > 0.004) && poolAt) widen();
       const car = toCamera(cam, carX, carY);
-      const drawn = drawRoads(cam);
-      drawArrows(cam, drawn, dt);
-      if (oriented) drawAhead(cam);
+      const { drawn, raised } = drawRoads(cam);
+      const lifted = drawArrows(cam, drawn, raised, dt);
       drawLanes(cam, drawn);
+      if (oriented) drawAhead(cam);
+      if (raised.length) drawDecks(cam, raised, lifted);
+      if (oriented) drawAhead(cam, true);
       drawFog();
       if (oriented) { drawCar(car, -user.turn); drawBoards(cam, carCam, now); } else drawDot(car);
     },

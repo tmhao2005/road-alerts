@@ -64,6 +64,7 @@ for await (const raw of rl) {
       lanes: p.lanes || null, oneway: p.oneway || null, onewayMoto: p['oneway:motorcycle'] || null, junction: p.junction || null,
       expressway: p.expressway || null,
       maxspeed: p.maxspeed || null, maxF: p['maxspeed:forward'] || null, maxB: p['maxspeed:backward'] || null,
+      bridge: p.bridge && p.bridge !== 'no' ? 1 : null, layer: parseInt(p.layer, 10) || null,
       c: g.coordinates.map(round),
     });
     continue;

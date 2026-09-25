@@ -5,6 +5,7 @@
 // rasterised onto a ~55 m grid, then every road is split wherever those facts change.
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { elevate } from '../src/elevation.js';
 
 const [src = 'data/hcm-index.json', outDir = 'site/tiles'] = process.argv.slice(2);
 const data = JSON.parse(readFileSync(src, 'utf8'));
@@ -78,7 +79,7 @@ function factsAt(x, y) {
   return { w, q, res };
 }
 
-const ATTRS = ['id', 'highway', 'name', 'ref', 'lanes', 'oneway', 'onewayMoto', 'junction', 'expressway', 'maxspeed', 'maxF', 'maxB'];
+const ATTRS = ['id', 'highway', 'name', 'ref', 'lanes', 'oneway', 'onewayMoto', 'junction', 'expressway', 'maxspeed', 'maxF', 'maxB', 'bridge', 'layer'];
 
 // Split each road where its ward / khu phố / residential facts change. Consecutive
 // pieces share the vertex at the change, so the road stays continuous.
@@ -109,15 +110,23 @@ for (const road of data.roads) {
   }
 }
 
-const tiles = new Map();
-for (const p of pieces) {
-  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
-  for (const [x, y] of p.c) { if (x < w) w = x; if (x > e) e = x; if (y < s) s = y; if (y > n) n = y; }
+const outs = pieces.map((p) => {
   const out = { ...p.road, c: p.c };
   if (p.f.w) out.w = p.f.w;
   if (p.f.q) out.q = p.f.q;
   if (p.f.res) out.res = 1;
   if (p.sg) out.sg = p.sg;
+  return out;
+});
+// Heights for flyover decks and their ramps, worked out over the whole map at once: a ramp
+// often runs on into the next tile.
+const raisedBy = elevate(outs);
+for (const [out, bp] of raisedBy) out.h = bp.map(([s, h]) => [Math.round(s * 10) / 10, Math.round(h * 10) / 10]);
+
+const tiles = new Map();
+for (const out of outs) {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  for (const [x, y] of out.c) { if (x < w) w = x; if (x > e) e = x; if (y < s) s = y; if (y > n) n = y; }
   for (let tx = Math.floor(w / TILE); tx <= Math.floor(e / TILE); tx++) {
     for (let ty = Math.floor(s / TILE); ty <= Math.floor(n / TILE); ty++) {
       const k = `${tx}_${ty}`;
@@ -149,7 +158,7 @@ writeFileSync(`${outDir}/index.json`, JSON.stringify({
   hash: hash.digest('hex').slice(0, 12),
   // Bumped whenever a tile gains or changes a field. The app puts it in each tile's URL,
   // so a phone holding tiles from earlier the same day fetches the new kind instead.
-  format: 2,
+  format: 3,
   // Every tile there is, so the whole map can be saved for driving without signal.
   keys,
   wards: data.wards.map((w) => ({ n: w.name, k: w.kind })),
