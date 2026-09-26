@@ -32,7 +32,7 @@ export function roadWidth(p) {
 }
 
 // Red is kept for one thing on this screen - over the limit - so nothing here uses it
-// except the rim of a real speed sign.
+// except the rim of a real speed sign and the unlit glass of a traffic light's top lens.
 export const THEMES = {
   light: {
     sky: ['#DCE5F0', '#EAEEF3'], ground: ['#EAEEF3', '#F1F2F4'],
@@ -40,7 +40,7 @@ export const THEMES = {
     ahead: 'rgba(0, 122, 255, 0.13)', aheadEdge: 'rgba(0, 122, 255, 0.55)',
     lane: 'rgba(72, 78, 90, 0.42)', centre: '#E2A710', fog: 'rgba(234, 238, 243, ', arrow: '#818993',
     puck: '#007AFF', puckRim: '#FFFFFF', shadow: 'rgba(20, 30, 50, 0.22)',
-    pill: 'rgba(255, 255, 255, 0.94)', pillInk: '#1C1C1E', housing: '#2C2C2E', lamp: '#E5E5EA', pole: '#8E9199',
+    pill: 'rgba(255, 255, 255, 0.94)', pillInk: '#1C1C1E', housing: '#2C2C2E', housingRim: 'rgba(255, 255, 255, 0)', pole: '#8E9199',
   },
   dark: {
     sky: ['#030406', '#0E1014'], ground: ['#0E1014', '#16181C'],
@@ -48,11 +48,14 @@ export const THEMES = {
     ahead: 'rgba(10, 132, 255, 0.20)', aheadEdge: 'rgba(64, 156, 255, 0.75)',
     lane: 'rgba(235, 235, 245, 0.34)', centre: '#B98A0E', fog: 'rgba(14, 16, 20, ', arrow: '#8A919C',
     puck: '#0A84FF', puckRim: '#FFFFFF', shadow: 'rgba(0, 0, 0, 0.5)',
-    pill: 'rgba(44, 44, 46, 0.94)', pillInk: '#F2F2F7', housing: '#0B0B0C', lamp: '#D1D1D6', pole: '#6C6E75',
+    pill: 'rgba(44, 44, 46, 0.94)', pillInk: '#F2F2F7', housing: '#0B0B0C', housingRim: 'rgba(255, 255, 255, 0.16)', pole: '#6C6E75',
   },
 };
 
 const FONT = "'Be Vietnam Pro', system-ui, -apple-system, sans-serif";
+// A traffic light's lenses as glass with nothing behind it: [highlight, edge] for red, amber
+// and green, top to bottom.
+const GLASS = [['#E0675C', '#8E2A24'], ['#EDB54A', '#8C5E12'], ['#4FB98A', '#1C6B45']];
 
 export function makeHud(canvas, options = {}) {
   const ctx = canvas.getContext('2d');
@@ -780,15 +783,30 @@ export function makeHud(canvas, options = {}) {
     ctx.fillText(String(max), x, y + size * 0.03);
   }
 
-  // Monochrome on purpose: a red lamp on this screen would read as "you are speeding".
+  // The phase is not known, so no lamp is lit: three coloured lenses under their hoods,
+  // lit by nothing. A lit red would claim the light is red, and would read as "you are
+  // speeding" besides. The hoods and the glint are left off once the head is too small to
+  // show them. At night the black housing gets a faint rim so it does not sink into the road.
   function drawLamp(x, y, size) {
     const w = size * 0.5, h = size * 1.08, r = w * 0.32;
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.2)'; ctx.shadowBlur = size * 0.12; ctx.shadowOffsetY = size * 0.04;
     roundRect(x - w / 2, y - h / 2, w, h, r); ctx.fillStyle = theme.housing; ctx.fill();
     ctx.restore();
-    ctx.fillStyle = theme.lamp;
-    for (let k = -1; k <= 1; k++) { ctx.beginPath(); ctx.arc(x, y + k * h * 0.29, w * 0.27, 0, Math.PI * 2); ctx.fill(); }
+    ctx.strokeStyle = theme.housingRim; ctx.lineWidth = 1;
+    roundRect(x - w / 2 + 0.5, y - h / 2 + 0.5, w - 1, h - 1, r); ctx.stroke();
+    const lr = w * 0.29, detail = size >= 34;
+    for (let k = -1; k <= 1; k++) {
+      const cy = y + k * h * 0.29, [hi, lo] = GLASS[k + 1];
+      const g = ctx.createRadialGradient(x - lr * 0.3, cy - lr * 0.35, lr * 0.1, x, cy, lr);
+      g.addColorStop(0, hi); g.addColorStop(1, lo);
+      ctx.beginPath(); ctx.arc(x, cy, lr, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+      if (!detail) continue;
+      ctx.beginPath(); ctx.arc(x, cy, lr * 1.16, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.lineWidth = lr * 0.28; ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x - lr * 0.35, cy - lr * 0.42, lr * 0.3, lr * 0.16, -0.5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fill();
+    }
   }
 
   function distancePill(x, y, size, metresAway) {

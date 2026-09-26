@@ -113,3 +113,9 @@ test('a higher limit still waiting to be shown is the one the driver is judged b
   assert.equal(judged(null, LAW(90)), null);
   assert.equal(judged({ max: null }, LAW(90)), null);
 });
+
+// Joining a cao tốc the map has no sign for: the badge keeps the approach road's 60 for a
+// while, and the driver is not over it for being on the expressway at 100.
+test('a limit that is about to become unknown leaves nothing to judge by', () => {
+  assert.equal(judged(SIGN(60), { max: null, tier: 'khong_ro' }), null);
+});

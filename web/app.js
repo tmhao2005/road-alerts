@@ -17,6 +17,7 @@ import { makeAutopilot } from './src/autopilot.js';
 import { makeFixFiller } from './src/fix.js';
 import { VEHICLES } from './src/limit.js';
 import { metresPerDegree } from './src/geo.js';
+import { daylight } from './src/sun.js';
 import { makeStillness, lastChange, pending, retain, stood, whenLabel, STILL, GAP_MS, MOVING_KMH } from './src/trip.js';
 import { makeHud } from './hud.js';
 import { makeReview } from './review.js';
@@ -70,7 +71,10 @@ const DEMOS = {
   tamanh: { title: 'Đến BV Tâm Anh, Tân Bình', sub: 'Tân Kỳ Tân Quý · Cộng Hòa · 2 cầu vượt · 7 km', route: 'tamanh', kmh: 45, seed: 11 },
   // Driven by the limit, and over it in the places the route tool picked, so every level of
   // the speeding warning is heard, and the places it must stay quiet are passed through.
-  cuchi: { title: 'Bến xe Củ Chi → Phú Hòa Đông', sub: 'Tỉnh lộ 8 · Cây Bài · cảnh báo quá tốc độ · 8 km', route: 'cuchi', kmh: 90, seed: 13, byLimit: true },
+  cuchi: { title: 'Bến xe Củ Chi → Phú Hòa Đông', sub: 'Tỉnh lộ 8 · Cây Bài · quá tốc độ · 8 km', route: 'cuchi', kmh: 90, seed: 13, byLimit: true },
+  // Onto the cao tốc at Chợ Đệm and off at the rest stop. A xe máy may not go on a cao tốc,
+  // so this one is always driven as a car.
+  caotoc: { title: 'Đến trạm dừng Châu Thành', sub: 'Cao tốc Trung Lương · biển 100 · 20 km', route: 'caotoc', kmh: 110, seed: 17, byLimit: true, vehicle: 'oto_con' },
 };
 
 // The clock a drive runs on. A real drive runs on the phone's own clocks. A demo keeps one
@@ -154,6 +158,7 @@ const state = {
   greetPending: false, // the drive has begun, the voice waits for the car to move
   travelled: 0,        // metres since then, for a car crawling out slower than 2 m/s
   demo: null,
+  vehicleBefore: null, // the vehicle to go back to after a demo that has to be driven as another
   hud: null,
   motion: makeMotion(),
   fill: makeFixFiller(),
@@ -462,6 +467,7 @@ async function startDemo(key) {
   stopPositions();
   forget();
   state.demo = key;
+  if (d.vehicle && d.vehicle !== state.vehicle) { state.vehicleBefore = state.vehicle; state.vehicle = d.vehicle; }
   let route = null, marks = [], scenes = [];
   if (d.route) {
     try { ({ route, marks = [], scenes = [] } = await (await fetch(`demo/${d.route}.json`)).json()); } catch {}
@@ -644,6 +650,7 @@ function endDemo() {
   state.timer = null;
   state.demo = null;
   state.pilot = null;
+  if (state.vehicleBefore) { state.vehicle = state.vehicleBefore; state.vehicleBefore = null; renderTiles(); }
   clock.stop();
   forget();
   $('roadName').textContent = 'Đang tìm vị trí…';
@@ -865,7 +872,7 @@ const TIER = { bien_bao: ['Biển báo', 'sign'], theo_luat: ['Theo luật', 'la
 
 // Parked, the card says how sure the limit is and where; driving, what kind of road it is.
 function homeMeta(r) {
-  const [t, c] = TIER[r.limit.tier] || [r.road.expressway ? 'Xem biển cao tốc' : 'Chưa rõ', 'unk'];
+  const [t, c] = TIER[r.limit.tier] || [r.limit.barred ? 'Cấm xe máy' : r.road.expressway ? 'Xem biển cao tốc' : 'Chưa rõ', 'unk'];
   return `<span class="t ${c}">${t}</span> · ${esc(r.wardName || r.quarterName || r.label)}`;
 }
 function driveMeta(r) {
@@ -908,7 +915,7 @@ function setTier(tier) {
   if (tier === 'bien_bao') { el.textContent = 'Biển báo'; el.classList.add('sign-tier'); }
   else if (tier === 'theo_luat') { el.textContent = 'Theo luật'; el.classList.add('law'); }
   else if (tier == null) el.textContent = 'Đang tải';
-  else el.textContent = state.shown && state.shown.road.expressway ? 'Xem biển cao tốc' : 'Chưa rõ';
+  else el.textContent = state.shown && state.shown.limit.barred ? 'Cấm xe máy' : state.shown && state.shown.road.expressway ? 'Xem biển cao tốc' : 'Chưa rõ';
 }
 
 function setBadge(max, tier) {
@@ -978,7 +985,7 @@ function openSheet(id, open) {
 }
 function closeSheets() { openSheet('sheet', false); openSheet('settings', false); }
 $('more').onclick = () => openSheet('sheet', !$('sheet').classList.contains('open'));
-$('homeMore').onclick = () => { renderLogCount(); renderMatch(); openSheet('settings', true); };
+$('homeMore').onclick = () => { renderLogCount(); renderMatch(); renderTheme(); openSheet('settings', true); };
 // On trial: which road the car is on, worked out by src/track.js instead of matchLive.
 const trackOn = () => store.get('match', 'live') === 'track';
 function renderMatch() { $('matchVal').textContent = trackOn() ? 'Bật' : 'Tắt'; }
@@ -989,10 +996,35 @@ $('matchTry').onclick = () => {
 };
 $('scrim').onclick = closeSheets;
 
+// Giao diện. Tự động is light while the sun is up where the car is and dark once it has
+// set, whatever the phone is set to: a phone kept in dark mode would otherwise show the
+// night map at noon, and one kept light would glare at night. Sáng and Tối fix it.
+const LOOKS = { auto: ['Tự động', 'Sáng ban ngày, tối khi mặt trời lặn'], light: ['Sáng', 'Luôn sáng'], dark: ['Tối', 'Luôn tối'] };
+const themePref = () => { const p = store.get('theme', 'auto'); return LOOKS[p] ? p : 'auto'; };
 function theme() {
-  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  const pref = themePref();
+  if (pref !== 'auto') return pref;
+  const at = state.last || { lat: 10.78, lon: 106.7 };
+  return daylight(Date.now(), at.lat, at.lon) ? 'light' : 'dark';
 }
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (state.hud) { state.hud.setTheme(theme()); state.redraw = true; } });
+function applyTheme() {
+  const t = theme();
+  document.documentElement.dataset.theme = t;
+  for (const m of document.querySelectorAll('meta[name="theme-color"]')) m.content = t === 'dark' ? '#000000' : '#F2F2F7';
+  if (state.hud && state.theme !== t) { state.hud.setTheme(t); state.redraw = true; }
+  state.theme = t;
+}
+function renderTheme() {
+  const [val, note] = LOOKS[themePref()];
+  $('themeVal').textContent = val;
+  $('themeNote').textContent = note;
+}
+$('themeTry').onclick = () => {
+  const order = Object.keys(LOOKS);
+  store.set('theme', order[(order.indexOf(themePref()) + 1) % order.length]);
+  renderTheme();
+  applyTheme();
+};
 
 function toast(text) {
   const t = $('toast');
@@ -1579,9 +1611,10 @@ async function boot() {
   renderPending();
   renderLogCount();
   syncInstall();
-  setInterval(() => { if (state.mode === 'home') renderGreet(); }, 60e3);
+  setInterval(() => { if (state.mode === 'home') renderGreet(); applyTheme(); }, 60e3);
+  applyTheme();
   // ?flat draws flyovers no differently from the roads they cross, as the map first was.
-  state.hud = makeHud($('scene'), { theme: theme(), bike: bike(), parkY: PARK_Y, flat: params.has('flat') });
+  state.hud = makeHud($('scene'), { theme: state.theme, bike: bike(), parkY: PARK_Y, flat: params.has('flat') });
   state.hud.park(true, true);
   startLoop();
   keepAwake();

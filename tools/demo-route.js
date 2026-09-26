@@ -10,11 +10,13 @@ import { route } from '../src/route.js';
 import { metres } from '../src/geo.js';
 
 // Ends as [lon, lat]. The hospital is where OSM has Bệnh viện Đa khoa Tâm Anh; the Củ Chi
-// ends are where Google Maps has the bus station and the Bamboo restaurant on Cây Bài.
-// speeding: the drive is also where the speed warning is shown off, so it gets scenes.
+// ends are where Google Maps has the bus station and the Bamboo restaurant on Cây Bài, and
+// the cao tốc drive joins the approach road short of Chợ Đệm and ends at the Châu Thành
+// rest stop. speeding: the drive also shows off the speed warning, so it gets scenes.
 const ROUTES = {
   tamanh: { from: [106.6138763, 10.8036915], to: [106.66620, 10.80246] },
   cuchi: { from: [106.4822579, 10.9709819], to: [106.5315771, 11.0064914], speeding: true },
+  caotoc: { from: [106.572405, 10.68555], to: [106.4186398, 10.6033307], speeding: true },
 };
 
 const [DIR = 'site/tiles', OUT = 'site/demo'] = process.argv.slice(2);
@@ -48,18 +50,21 @@ function stretches(pieces, r) {
 // rebuilt every week and a sign that moves would leave a fixed scene speeding past nothing.
 //
 // On the longest stretch with no sign, the driver creeps over the statutory limit and then
-// pushes on: the hedged warning, then the firm one. At the biggest drop to a signposted
-// limit, the driver misses the sign and brakes late: the firm warning, with the limit said
-// again. Further into that sign's stretch, a little over it: the plain warning.
+// pushes on: the hedged warning, then the firm one. A cao tốc has no statute to fall back
+// on, so there the longest signposted stretch takes that part, and the warnings are the
+// plain ones. At the biggest drop to a signposted limit, the driver misses the sign and
+// brakes late: the firm warning, with the limit said again. Further into that sign's
+// stretch, a little over it: the plain warning.
 function speedingScenes(runs) {
   const scenes = [], marks = [];
-  const law = runs.filter((s) => s.tier === 'theo_luat' && s.to - s.from >= 1500 && s.from > 300)
+  const longest = (tier, min) => runs.filter((s) => s.tier === tier && s.to - s.from >= min && s.from > 300)
     .sort((a, b) => (b.to - b.from) - (a.to - a.from))[0];
-  if (law) {
+  const push = longest('theo_luat', 1500) || longest('bien_bao', 3000);
+  if (push) {
     // In the middle, well clear of whatever junction or change of limit began the stretch.
-    const at = law.from + (law.to - law.from - 900) / 2;
+    const at = push.from + (push.to - push.from - 900) / 2;
     scenes.push({ from: at, to: at + 500, over: 7 }, { from: at + 500, to: at + 900, over: 12 });
-    marks.push({ at, name: `Quá tốc độ · theo luật ${law.max}` });
+    marks.push({ at, name: push.tier === 'theo_luat' ? `Quá tốc độ · theo luật ${push.max}` : `Quá tốc độ · biển ${push.max}` });
   }
   let drop = null;
   runs.forEach((s, i) => {
@@ -93,7 +98,9 @@ for (const [name, { from, to, speeding }] of Object.entries(ROUTES)) {
   r.forEach((c, i) => {
     if (i) d += metres(r[i - 1], c);
     const deck = decks.get(`${c[0]},${c[1]}`) || null;
-    if (deck && deck !== on) marks.push({ at: Math.round(d), name: deck });
+    // One bridge is often mapped as a few pieces with different names; one mark each.
+    const last = marks[marks.length - 1];
+    if (deck && deck !== on && !(last && d - last.at < 300)) marks.push({ at: Math.round(d), name: deck });
     on = deck;
   });
   let scenes = [];

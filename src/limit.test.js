@@ -56,6 +56,15 @@ test('cao tốc: the statute only bounds it, so no number is invented', () => {
   assert.equal(r.rule, 'Điều 9');
 });
 
+test('a xe máy on a cao tốc gets no number, even from the sign there', () => {
+  for (const v of ['xe_mo_to', 'xe_gan_may']) {
+    const r = withSign(v, statutoryLimit(v, { expressway: true }), 100);
+    assert.equal(r.max, null, v);
+    assert.equal(r.barred, true, v);
+    assert.equal(r.tier, 'khong_ro', v);
+  }
+});
+
 test('a posted sign overrides the statutory default', () => {
   const s = statutoryLimit('oto_con', { ...twoWay, inside: true });
   const r = withSign('oto_con', s, 60);

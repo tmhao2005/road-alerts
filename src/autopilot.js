@@ -12,6 +12,8 @@ const RANK = { motorway: 7, trunk: 6, primary: 5, secondary: 4, tertiary: 3, unc
 // A route goes down lanes a wandering demo never takes, and nobody drives those at the
 // cruising speed. km/h.
 const LANE = { tertiary: 60, unclassified: 30, residential: 25, living_street: 15, service: 15 };
+// A ramp is taken at about this, whatever road it joins. km/h.
+const RAMP = 50;
 // How far under the limit a driver with a limit to go by keeps. km/h.
 const UNDER = 4;
 const same = (a, b) => a[0] === b[0] && a[1] === b[1];
@@ -135,7 +137,8 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
     if (!scene || !scene.late) held = null;
     if (scene && scene.late) return (held ??= v);
     if (scene && scene.over != null && max != null) return (max + scene.over) / 3.6;
-    const lane = (LANE[(piece.highway || '').replace('_link', '')] || Infinity) / 3.6;
+    const hw = piece.highway || '';
+    const lane = Math.min(LANE[hw.replace('_link', '')] || Infinity, hw.endsWith('_link') ? RAMP : Infinity) / 3.6;
     return Math.min(cruise, lane, max != null ? (max - UNDER) / 3.6 : Infinity);
   }
 

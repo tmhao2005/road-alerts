@@ -46,10 +46,12 @@ Under ⋯ on the home screen, the "Xem thử, không cần lái" drives run a pr
 real roads, one fix a second like a phone's GPS, through the same matching, law and drawing
 as a real drive; `?demo=tamanh` starts one straight away. Each drives a route worked out
 over the tiles by `tools/demo-route.js`: `tamanh` 7 km from Tân Thạnh street to Bệnh viện
-Tâm Anh on Phổ Quang, and `cuchi` 8 km from the Củ Chi bus station out along Tỉnh lộ 8 to
-Cây Bài. The Củ Chi driver keeps to the limit except where the route tool has it speed on
-purpose: over the statutory 90 on Tỉnh lộ 8, then past a 40 sign on Cây Bài without
-braking, so each level of the speeding warning is heard. A demo runs on its own clock:
+Tâm Anh on Phổ Quang, `cuchi` 8 km from the Củ Chi bus station out along Tỉnh lộ 8 to
+Cây Bài, and `caotoc` 20 km onto the TP.HCM – Trung Lương cao tốc at Chợ Đệm and off at
+the Châu Thành rest stop, always as a car. On the last two the driver keeps to the limit
+except where the route tool has it speed on purpose: over the statutory 90 on Tỉnh lộ 8,
+past a 40 sign on Cây Bài without braking, and over the posted 100 on the cao tốc, so
+each level of the speeding warning is heard. A demo runs on its own clock:
 `?x=4` plays it at 4x (2 and 8 too; the voice keeps quiet above 2x, since a recorded line
 cannot be hurried), and `?km=4.1` starts it 4.1 km in, just short of the Hoàng Hoa Thám
 flyover on the Tâm Anh route. The same can be done on the demo's bar: its button steps the
@@ -335,9 +337,10 @@ Decisions so far:
 - **Draw only what the data supports.** No lane dividers where `lanes` is untagged; labels
   omitted when too small to read.
 - **Traffic lights ahead** appear on the right shoulder with the other upcoming features,
-  with a monochrome lamp icon (red is reserved for speeding), and are spoken once per
-  junction ("Đèn giao thông phía trước", or "Đèn qua đường" at a signalised crossing)
-  about 8 seconds out at current speed, 80–300 m. Only lights on the road being driven and
+  as a signal head with its three lenses coloured but none lit (the phase is not known,
+  and a lit red would read as speeding), and are spoken once per junction ("Đèn giao
+  thông phía trước", or "Đèn qua đường" at a signalised crossing) about 8 seconds out at
+  current speed, 80–300 m. Only lights on the road being driven and
   facing the driver's direction count, and the look-ahead stops at any junction where
   that road does not obviously continue: a light announced on a road the driver is not
   taking teaches them to ignore the voice.

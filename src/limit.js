@@ -45,10 +45,13 @@ export function statutoryLimit(vehicleKey, road) {
   // Điều 9 bounds a cao tốc but never sets its limit - that lives in each route's
   // approved traffic plan and must be signposted. Inventing a number here is exactly the
   // failure the app exists to avoid.
+  //
+  // Xe mô tô and xe gắn máy may not go on a cao tốc at all, so no sign there is theirs. A
+  // two-wheeler that seems to be on one has been matched to it by mistake - the road it is
+  // really on runs alongside - and the expressway's 100 would be a number for someone else.
   if (road.expressway) {
-    const notes = ['Tối đa 120, tối thiểu 60; số thật nằm trên biển của từng tuyến'];
-    if (v.twoWheeler) notes.push('Xe hai bánh thường không được đi vào cao tốc — cần kiểm tra');
-    return { max: null, min: 60, range: [60, 120], rule: 'Điều 9', notes };
+    if (v.twoWheeler) return { max: null, barred: true, rule: 'Xe hai bánh không được đi vào cao tốc', notes: [] };
+    return { max: null, min: 60, range: [60, 120], rule: 'Điều 9', notes: ['Tối đa 120, tối thiểu 60; số thật nằm trên biển của từng tuyến'] };
   }
 
   // Điều 7 and 8 apply everywhere except cao tốc, inside or outside đông dân cư alike.
@@ -67,7 +70,7 @@ export function statutoryLimit(vehicleKey, road) {
 // A posted sign overrides the statutory default (Điều 4.2). Flat-cap vehicles keep their
 // own ceiling: a road signed 60 does not let a xe gắn máy do more than 40.
 export function withSign(vehicleKey, statutory, signMax) {
-  if (signMax == null) return { ...statutory, tier: statutory.max == null ? 'khong_ro' : 'theo_luat' };
+  if (signMax == null || statutory.barred) return { ...statutory, tier: statutory.max == null ? 'khong_ro' : 'theo_luat' };
   const v = VEHICLES[vehicleKey];
   const max = v.cap ? Math.min(signMax, v.cap) : signMax;
   const notes = [...statutory.notes];

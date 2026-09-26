@@ -33,10 +33,12 @@ const SLOWING = 3;             // km/h lost over the last couple of seconds that
 const GAP = 2000;              // longest step counted at once, so a gap in fixes is not time over
 
 // shown: the { max, tier } on the badge; pending: a value the stabiliser is still waiting
-// on, or null. A higher pending limit is the one the driver is judged against.
+// on, or null. A higher pending limit is the one the driver is judged against, and one
+// that is not known - a cao tốc with no sign on the map - leaves nothing to judge by.
 export function judged(shown, pending) {
   if (!shown || shown.max == null) return null;
-  if (pending && pending.max != null && pending.max > shown.max) return pending;
+  if (pending && pending.max == null) return null;
+  if (pending && pending.max > shown.max) return pending;
   return shown;
 }
 
