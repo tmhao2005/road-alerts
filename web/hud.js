@@ -261,7 +261,28 @@ export function makeHud(canvas, options = {}) {
       prev = p;
     }
     if (run.length > 1) runs.push(run);
-    return runs.filter((r) => r.length > 1);
+    return runs.filter((r) => r.length > 1).map(bend);
+  }
+
+  // Straight on the ground is not straight on screen once distance ahead is folded (see
+  // view.js), so a ribbon drawn vertex to vertex cuts the corner of the true curve: by more
+  // than a motorway's width on a long segment, leaving its lane lines and arrows, which are
+  // placed a few metres at a time, off the road. So a long segment is walked in steps, short
+  // near the car and longer far off where the fold bends less, within about half a pixel.
+  function bend(run) {
+    const out = [run[0]];
+    for (let i = 1; i < run.length; i++) {
+      const a = run[i - 1], b = run[i];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const step = (z) => 20 + 0.25 * Math.max(0, Math.min(z, b[1]));
+      for (let s = step(a[1]); s < len;) {
+        const t = s / len, z = a[1] + (b[1] - a[1]) * t;
+        out.push([a[0] + (b[0] - a[0]) * t, z]);
+        s += step(z);
+      }
+      out.push(b);
+    }
+    return out;
   }
 
   // A road as a filled ribbon: both edges offset on the ground, then projected, so it
