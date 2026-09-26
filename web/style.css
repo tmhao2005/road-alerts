@@ -210,12 +210,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .badge { display: flex; flex-direction: column; align-items: center; gap: 9px; }
 /* The sign is always the real sign: white face, red rim, black number. Confidence lives
-   in the label underneath, never in the sign itself. Isolated, because Safari otherwise
-   clips a number that is animating in to the sign's square rather than its circle, and
-   the corners of its box show over the rim. */
+   in the label underneath, never in the sign itself. A layer of its own, so a new limit's
+   bounce only moves it: repainted in place instead, Safari left the corners of the number's
+   box white over the rim after a jump along the demo bar. */
 .sign {
   position: relative; width: 108px; height: 108px; border-radius: 50%; background: #fff;
-  border: 13px solid var(--red); display: grid; place-items: center; overflow: hidden; isolation: isolate;
+  border: 13px solid var(--red); display: grid; place-items: center; overflow: hidden; will-change: transform;
   box-shadow: 0 2px 6px rgba(16, 20, 30, 0.1), 0 10px 24px rgba(16, 20, 30, 0.14);
 }
 .sign .num {
