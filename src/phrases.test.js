@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allLines, signLine, lawLine, lightLine, LIMIT_STEPS } from './phrases.js';
+import { allLines, signLine, lawLine, lightLine, LIMIT_STEPS, FIXED } from './phrases.js';
 
 test('ids are unique and usable as filenames', () => {
   const ids = allLines().map((l) => l.id);
@@ -11,7 +11,7 @@ test('ids are unique and usable as filenames', () => {
 test('every line has text and a delivery', () => {
   for (const l of allLines()) {
     assert.ok(l.text.length > 0, l.id);
-    assert.ok(['plain', 'calm', 'urgent', 'sure', 'hedged'].includes(l.voice), l.id);
+    assert.ok(['plain', 'calm', 'urgent', 'caution', 'sure', 'hedged'].includes(l.voice), l.id);
   }
 });
 
@@ -35,5 +35,14 @@ test('statutory values are all covered', () => {
 });
 
 test('a crossing light is a different line from a junction light', () => {
-  assert.notEqual(lightLine(true).id, lightLine(false).id);
+  assert.equal(lightLine(true).id, 'light-crossing');
+  assert.equal(lightLine(false).id, 'light');
+});
+
+// Like the limits themselves: being over a number the law gave us must not sound as sure
+// as being over one read off a sign.
+test('being over a statutory limit is said differently from being over a sign', () => {
+  const [sign, law] = ['over', 'over-law'].map((id) => FIXED.find((f) => f.id === id));
+  assert.notEqual(sign.text, law.text);
+  assert.notEqual(sign.voice, law.voice);
 });

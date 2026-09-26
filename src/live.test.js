@@ -65,6 +65,15 @@ test('a higher limit must hold for ~250 m before it replaces the shown one', () 
   assert.equal(r.shown.max, 80);
 });
 
+test('a higher limit still being held back is reported', () => {
+  const next = makeStabiliser({ down: 40, up: 250 });
+  next(v(60), 0);
+  const r = next(v(80), 30);
+  assert.equal(r.shown.max, 60);
+  assert.equal(r.pending.max, 80);
+  assert.equal(next(v(60), 10).pending, null);
+});
+
 test('a lower limit replaces the shown one almost at once', () => {
   const next = makeStabiliser({ down: 40, up: 250 });
   next(v(80), 0);

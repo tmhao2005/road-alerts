@@ -24,6 +24,13 @@ export const FIXED = [
   { id: 'light',          text: 'Đèn giao thông phía trước',   voice: 'calm' },
   { id: 'light-crossing', text: 'Đèn qua đường phía trước',    voice: 'calm' },
   { id: 'over',           text: 'Quá tốc độ',                  voice: 'urgent' },
+  // Over a limit worked out from the law rather than read off a sign: the same warning,
+  // less sure of itself, because where the law is wrong about a road it is wrong on every
+  // drive down it.
+  { id: 'over-law',       text: 'Theo luật, quá tốc độ',       voice: 'caution' },
+  // Well over, or still over after being told. Followed by the limit itself, since a
+  // driver this far over has most likely missed it.
+  { id: 'slow',           text: 'Giảm tốc độ',                 voice: 'urgent' },
   { id: 'logged',         text: 'Đã ghi nhận',                 voice: 'plain' },
 ];
 
@@ -39,7 +46,7 @@ export function lawLine(max) {
 }
 
 export function lightLine(crossing) {
-  return crossing ? FIXED[3] : FIXED[2];
+  return FIXED.find((f) => f.id === (crossing ? 'light-crossing' : 'light'));
 }
 
 // The render script's worklist, and the app's preload list. Same order every run so a

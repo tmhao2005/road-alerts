@@ -9,8 +9,11 @@ import { allowed } from './path.js';
 import { matchLive } from './live.js';
 
 const RANK = { motorway: 7, trunk: 6, primary: 5, secondary: 4, tertiary: 3, unclassified: 2, residential: 1 };
-// A route goes down lanes a wandering demo never takes, and nobody does 40 in those. km/h.
-const LANE = { tertiary: 40, unclassified: 30, residential: 25, living_street: 15, service: 15 };
+// A route goes down lanes a wandering demo never takes, and nobody drives those at the
+// cruising speed. km/h.
+const LANE = { tertiary: 60, unclassified: 30, residential: 25, living_street: 15, service: 15 };
+// How far under the limit a driver with a limit to go by keeps. km/h.
+const UNDER = 4;
 const same = (a, b) => a[0] === b[0] && a[1] === b[1];
 
 function rng(seed) {
@@ -21,7 +24,11 @@ function rng(seed) {
 // getPieces(lon, lat): the road pieces around a point.
 // start: [lon, lat]; heading: compass degrees to set off in; kmh: cruising speed.
 // route: [[lon, lat], ...] of road vertices to follow instead; start and heading follow.
-export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, seed = 7, stopShare = 0.5, wait = 8, route = null }) {
+// limit(piece): the limit there in km/h, or null. Given one, the car keeps a little under it.
+// scenes: stretches of a route, in metres driven, where the driver misbehaves on purpose,
+// so a demo can show the speeding warning: { from, to, over } drives `over` km/h above the
+// limit; { from, to, late: true } misses a lower limit and holds the speed it had.
+export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, seed = 7, stopShare = 0.5, wait = 8, route = null, limit = null, scenes = [] }) {
   const random = rng(seed);
   const gauss = () => Math.sqrt(-2 * Math.log(random() || 1e-9)) * Math.cos(2 * Math.PI * random());
   const cruise = kmh / 3.6;
@@ -69,6 +76,7 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
   let driven = 0; // metres, so a demo can be run on to a point along its drive
   let waitUntil = 0, clock = 0, parked = false; // parked: a one-way road that just ends
   const decided = new Map(); // light id -> stops there or not
+  let held = null; // m/s, the speed a late driver is holding on to
 
   const edge = () => [piece.c[i], piece.c[i + sense]];
 
@@ -120,6 +128,17 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
     }
   }
 
+  // The speed the driver is aiming for here, in m/s.
+  function aim() {
+    const max = limit ? limit(piece) : null;
+    const scene = scenes.find((s) => driven >= s.from && driven < s.to);
+    if (!scene || !scene.late) held = null;
+    if (scene && scene.late) return (held ??= v);
+    if (scene && scene.over != null && max != null) return (max + scene.over) / 3.6;
+    const lane = (LANE[(piece.highway || '').replace('_link', '')] || Infinity) / 3.6;
+    return Math.min(cruise, lane, max != null ? (max - UNDER) / 3.6 : Infinity);
+  }
+
   // The first light ahead on this piece, if the car should stop for it.
   function stopAhead() {
     let d = metres(piece.c[i], piece.c[i + sense]) - done;
@@ -159,7 +178,7 @@ export function makeAutopilot({ getPieces, start, heading, kmh = 50, noise = 3, 
         if (target < 0.5 || v < 0.3) { v = 0; waitUntil = clock + wait; decided.set(light.id, false); }
       } else if (route) {
         // Easing down into a lane or up out of it, and braking to a stop at the end.
-        const cap = Math.min(cruise, (LANE[(piece.highway || '').replace('_link', '')] || Infinity) / 3.6, Math.sqrt(2 * 2.2 * (left[passed] - done)));
+        const cap = Math.min(aim(), Math.sqrt(2 * 2.2 * (left[passed] - done)));
         v = v > cap ? Math.max(cap, v - 2.5 * h) : Math.min(cap, v + 1.6 * h);
       } else v = Math.min(cruise, v + 1.6 * h);
       advance(v * h);

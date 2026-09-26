@@ -82,18 +82,19 @@ export function evaluate(piece, index, vehicle) {
 // for a while. Being slow to relax is safe; being slow to tighten gets people fined.
 //
 // value: { key, max } (max null = unknown). metres: distance since the previous fix.
+// Also returns the value waiting to replace the shown one, if any.
 export function makeStabiliser({ down = 40, up = 250 } = {}) {
   let shown = null, pending = null, travelled = 0;
   return function next(value, metres = 0) {
-    if (!shown) { shown = value; return { shown, changed: true }; }
-    if (value.key === shown.key) { pending = null; travelled = 0; return { shown, changed: false }; }
+    if (!shown) { shown = value; return { shown, changed: true, pending: null }; }
+    if (value.key === shown.key) { pending = null; travelled = 0; return { shown, changed: false, pending }; }
     if (!pending || pending.key !== value.key) { pending = value; travelled = 0; }
     travelled += metres;
     const tighter = value.max != null && (shown.max == null || value.max < shown.max);
     if (travelled >= (tighter ? down : up)) {
       shown = value; pending = null; travelled = 0;
-      return { shown, changed: true };
+      return { shown, changed: true, pending };
     }
-    return { shown, changed: false };
+    return { shown, changed: false, pending };
   };
 }

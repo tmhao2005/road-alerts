@@ -80,3 +80,43 @@ test('it keeps count of how far it has driven, so a demo can be run on to a poin
   const along = metres(route[0], [f.lon, f.lat]);
   assert.ok(Math.abs(along - step.driven()) < 0.5, `${along.toFixed(1)} m along, ${step.driven().toFixed(1)} m counted`);
 });
+
+// Straight north for ~3.3 km: 80 for the first half, then a 40 sign.
+const fast = { id: 10, highway: 'primary', name: 'Fast', c: [[LON, LAT], [LON, LAT + 0.015]] };
+const slow = { id: 11, highway: 'primary', name: 'Fast', c: [[LON, LAT + 0.015], [LON, LAT + 0.03]] };
+const long = [[LON, LAT], [LON, LAT + 0.015], [LON, LAT + 0.03]];
+const signAt = metres(long[0], long[1]);
+const limit = (pc) => (pc === fast ? 80 : 40);
+// km/h as the car passes each of `marks` metres. The fixes carry GPS speed jitter of about
+// 1 km/h whatever the position noise, hence the loose comparisons.
+function speedsAt(step, marks) {
+  const out = [];
+  for (let t = 0; t < 600 && out.length < marks.length; t++) {
+    const f = step(1);
+    if (step.driven() >= marks[out.length]) out.push(f.speed * 3.6);
+  }
+  return out;
+}
+
+test('given the limit, it keeps a little under it rather than at its cruising speed', () => {
+  const step = makeAutopilot({ getPieces: () => [fast, slow], route: long, kmh: 120, limit, noise: 0, stopShare: 0 });
+  const [a, b] = speedsAt(step, [1200, signAt + 300]);
+  assert.ok(Math.abs(a - 76) < 3.5, `${a.toFixed(1)} before the sign`);
+  assert.ok(Math.abs(b - 36) < 3.5, `${b.toFixed(1)} after it`);
+});
+
+test('a scene has it drive over the limit by a set amount, then settle again', () => {
+  const scenes = [{ from: 600, to: 1200, over: 8 }];
+  const step = makeAutopilot({ getPieces: () => [fast, slow], route: long, kmh: 120, limit, scenes, noise: 0, stopShare: 0 });
+  const [during, after] = speedsAt(step, [1100, 1450]);
+  assert.ok(Math.abs(during - 88) < 3.5, `${during.toFixed(1)} during`);
+  assert.ok(Math.abs(after - 76) < 3.5, `${after.toFixed(1)} after`);
+});
+
+test('a late driver holds its speed past a lower limit, then brakes for it', () => {
+  const scenes = [{ from: signAt, to: signAt + 200, late: true }];
+  const step = makeAutopilot({ getPieces: () => [fast, slow], route: long, kmh: 120, limit, scenes, noise: 0, stopShare: 0 });
+  const [held, braked] = speedsAt(step, [signAt + 150, signAt + 400]);
+  assert.ok(Math.abs(held - 76) < 3.5, `${held.toFixed(1)} past the sign`);
+  assert.ok(Math.abs(braked - 36) < 3.5, `${braked.toFixed(1)} after braking`);
+});

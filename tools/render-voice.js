@@ -64,6 +64,7 @@ const DIRECTION = {
   plain: 'A brief, neutral acknowledgement. Even and unhurried.',
   calm: 'Informational, unhurried, a little warm. You are pointing something out, not warning.',
   urgent: 'Firmer and slightly quicker, with more weight on the first syllable. Serious but never alarmed - a startled driver is a worse driver.',
+  caution: 'A clear heads-up rather than an alarm: even pace, steady and a little lower, easing off the last words instead of pressing on them. The limit was worked out from the rules, not read off a sign, so this is advice, not a reprimand.',
   sure: 'Definite and matter-of-fact, with a clear settled fall on the final number. This was read off a sign; you are not guessing.',
   __plain: 'Say it plainly and naturally, at an ordinary conversational pace.',
   hedged: 'Softer and a touch lower, slightly slower, easing off the final number rather than landing hard on it. This was worked out from the rules, not seen, and it should sound like it.',

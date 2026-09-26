@@ -44,13 +44,17 @@ npm run serve    # prints the localhost and LAN addresses
 
 Under ⋯ on the home screen, the "Xem thử, không cần lái" drives run a pretend car along
 real roads, one fix a second like a phone's GPS, through the same matching, law and drawing
-as a real drive; `?demo=q1` starts one straight away. Most wander wherever the road goes;
-`?demo=tamanh` drives a route instead, 7 km from Tân Thạnh street to Bệnh viện Tâm Anh on
-Phổ Quang, worked out over the tiles by `tools/demo-route.js`. A demo runs on its own clock:
+as a real drive; `?demo=tamanh` starts one straight away. Each drives a route worked out
+over the tiles by `tools/demo-route.js`: `tamanh` 7 km from Tân Thạnh street to Bệnh viện
+Tâm Anh on Phổ Quang, and `cuchi` 8 km from the Củ Chi bus station out along Tỉnh lộ 8 to
+Cây Bài. The Củ Chi driver keeps to the limit except where the route tool has it speed on
+purpose: over the statutory 90 on Tỉnh lộ 8, then past a 40 sign on Cây Bài without
+braking, so each level of the speeding warning is heard. A demo runs on its own clock:
 `?x=4` plays it at 4x (2 and 8 too; the voice keeps quiet above 2x, since a recorded line
 cannot be hurried), and `?km=4.1` starts it 4.1 km in, just short of the Hoàng Hoa Thám
 flyover on the Tâm Anh route. The same can be done on the demo's bar: its button steps the
-speed, and dragging along it jumps, snapping to just before each flyover marked on it.
+speed, and dragging along it jumps, snapping to just before each flyover or speeding scene
+marked on it.
 Real GPS needs https, so a real drive
 uses the GitHub Pages link, which every push to `main` redeploys. In Safari, Share → Add to
 Home Screen turns it into an app with its own icon.
@@ -337,6 +341,14 @@ Decisions so far:
   facing the driver's direction count, and the look-ahead stops at any junction where
   that road does not obviously continue: a light announced on a road the driver is not
   taking teaches them to ignore the voice.
+- **Speeding is spoken about only where it could cost a fine** (`src/over.js`). The number
+  turns red from 2 km/h over, two fixes running. The voice waits for 5 over held for 3 s, since Nghị định
+  168/2024 fines nothing below 5, and says it once: "Quá tốc độ" over a sign, "Theo luật,
+  quá tốc độ" with the softer chime over a statutory limit. At 10 over, where a car's fine
+  goes to 4–6 million đồng and two licence points, it says "Giảm tốc độ" and then the limit,
+  once. Seconds spent braking do not count, a lower limit gives 3 s to react before the
+  count starts, and a higher limit counts from the first fix on it, before the badge
+  shows it. A warning to someone driving legally teaches them to ignore the next one.
 - **One natural voice, from a fixed phrase bank.** Every phrase is written and approved by
   hand, then recorded once (voice actor or a good Vietnamese neural TTS) and shipped as
   audio, numbers 5–120 included. Nothing is generated while driving: alerts must be instant

@@ -11,6 +11,7 @@ import { matchTrack } from './src/track.js';
 import { reachFor, makeLightWatcher } from './src/lights.js';
 import { walkAhead, snapped, junctions, holdAt } from './src/path.js';
 import { limitsAhead } from './src/ahead.js';
+import { makeOverWatch, judged } from './src/over.js';
 import { makeMotion } from './src/motion.js';
 import { makeAutopilot } from './src/autopilot.js';
 import { makeFixFiller } from './src/fix.js';
@@ -63,12 +64,13 @@ const scratch = {
 };
 const home = (x) => (x && x.scratch ? scratch : disk);
 
-// Drives for checking the screen without a car: real roads, a pretend driver.
+// Drives for checking the screen without a car: real roads, a pretend driver, along routes
+// worked out by tools/demo-route.js.
 const DEMOS = {
-  q7: { title: 'Nguyễn Văn Linh, Q.7', sub: 'Đường đôi · đèn giao thông · biển 50', start: [106.716936, 10.729791], heading: 249, kmh: 45, seed: 3 },
-  q1: { title: 'Phạm Ngũ Lão → Trần Hưng Đạo, Q.1', sub: 'Phố trung tâm · nhiều đèn', start: [106.694793, 10.769263], heading: 68, kmh: 35, seed: 5 },
-  // Driven along a route worked out by tools/demo-route.js, rather than wherever the road goes.
   tamanh: { title: 'Đến BV Tâm Anh, Tân Bình', sub: 'Tân Kỳ Tân Quý · Cộng Hòa · 2 cầu vượt · 7 km', route: 'tamanh', kmh: 45, seed: 11 },
+  // Driven by the limit, and over it in the places the route tool picked, so every level of
+  // the speeding warning is heard, and the places it must stay quiet are passed through.
+  cuchi: { title: 'Bến xe Củ Chi → Phú Hòa Đông', sub: 'Tỉnh lộ 8 · Cây Bài · cảnh báo quá tốc độ · 8 km', route: 'cuchi', kmh: 90, seed: 13, byLimit: true },
 };
 
 // The clock a drive runs on. A real drive runs on the phone's own clocks. A demo keeps one
@@ -130,8 +132,8 @@ const state = {
   lights: makeLightWatcher(),
   judged: new WeakMap(),
   walk: null,
-  overSince: null,
-  overSaid: false,
+  over: makeOverWatch(),
+  pending: null,     // a higher limit the badge is still waiting on
   trip: null,        // the trip being driven: { id, start, end, vehicle, built, scratch }
   trace: [],         // its snapshots, every 5 s and at every event
   window: [],        // the last 30 s of fixes, once a second: what a report carries
@@ -328,7 +330,7 @@ function toDrive({ auto = false } = {}) {
   state.hud.setBike(bike());
   Object.assign(state, {
     stab: makeStabiliser(), lights: makeLightWatcher(), judged: new WeakMap(), shown: null, stillScene: false,
-    hudLimit: null, lastRect: null, speedShown: 0, overSince: null, overSaid: false, metaKey: null, said: null,
+    hudLimit: null, lastRect: null, speedShown: 0, over: makeOverWatch(), pending: null, metaKey: null, said: null,
     greetPending: false, travelled: 0,
   });
   $('install').hidden = true;
@@ -336,7 +338,7 @@ function toDrive({ auto = false } = {}) {
   let r = null;
   if (state.prev && state.index) {
     r = evaluate(state.prev, state.index, state.vehicle);
-    state.stab({ key: keyOf(r), max: r.limit.max }, 0);
+    state.stab({ key: keyOf(r), max: r.limit.max, tier: r.limit.tier }, 0);
     state.shown = r; state.current = r;
   }
   const max = r ? r.limit.max : null;
@@ -460,9 +462,9 @@ async function startDemo(key) {
   stopPositions();
   forget();
   state.demo = key;
-  let route = null, marks = [];
+  let route = null, marks = [], scenes = [];
   if (d.route) {
-    try { ({ route, marks = [] } = await (await fetch(`demo/${d.route}.json`)).json()); } catch {}
+    try { ({ route, marks = [], scenes = [] } = await (await fetch(`demo/${d.route}.json`)).json()); } catch {}
     if (!route) { toast('Không tìm thấy đường mô phỏng'); endDemo(); return; }
   }
   const start = route ? route[0] : d.start;
@@ -470,7 +472,12 @@ async function startDemo(key) {
   const getPieces = (lon, lat) => { ensureTiles(lon, lat); return piecesAround(lon, lat); };
   // Kept, so the drive can be started again and run on to an earlier point: the same seed
   // drives the same drive.
-  state.pilotArgs = { getPieces, start, heading: d.heading, kmh: d.kmh, seed: d.seed, route };
+  const limits = new WeakMap();
+  const limit = d.byLimit ? (piece) => {
+    if (!limits.has(piece)) limits.set(piece, evaluate(piece, state.index, state.vehicle).limit.max);
+    return limits.get(piece);
+  } : null;
+  state.pilotArgs = { getPieces, start, heading: d.heading, kmh: d.kmh, seed: d.seed, route, limit, scenes };
   const step = makeAutopilot(state.pilotArgs);
   if (!step) { toast('Không tìm thấy đường mô phỏng'); endDemo(); return; }
   // ?x=4 runs the drive at 4x; ?km=4.2 starts it 4.2 km in.
@@ -649,6 +656,7 @@ function forget() {
   Object.assign(state, {
     fill: makeFixFiller(), motion: makeMotion(), prev: null, track: null, trackFrom: null, trackFix: null, heading: null, headingBefore: null, current: null, last: null,
     stillScene: false, roadName: null, metaKey: null, stab: makeStabiliser(), shown: null, walk: null,
+    over: makeOverWatch(), pending: null,
   });
   setHere(null);
 }
@@ -704,7 +712,11 @@ function place(fix, step) {
     state.prev = m.piece;
     const r = evaluate(m.piece, state.index, state.vehicle);
     state.current = r;
-    const s = state.stab({ key: keyOf(r), max: r.limit.max }, step);
+    const s = state.stab({ key: keyOf(r), max: r.limit.max, tier: r.limit.tier }, step);
+    // A higher limit is judged by from the first fix on it, though the badge waits to show
+    // it: otherwise the number turns red as the driver speeds up past the sign. A fix that
+    // strays onto a faster side street costs at most a warning held back one fix.
+    state.pending = s.pending;
     if (s.changed) {
       const first = !state.shown;
       state.shown = r;
@@ -1169,22 +1181,18 @@ function announceLight(light) {
   say(lightLine(light.crossing), { chime: [740, 587], queue: true });
 }
 
+// When to speak is decided in src/over.js. Here only how: the chime says how sure the
+// limit is, as it does when the limit is announced, and the firmer warning ends on the
+// limit itself, since a driver that far over has most likely missed it.
 function checkOver(kmh) {
-  const max = state.shown ? state.shown.limit.max : null;
-  const over = kmh != null && max != null && kmh > max + 2;
-  $('speed').classList.toggle('over', over);
-  $('panel').classList.toggle('over', over);
-  if (!over) {
-    state.overSince = null;
-    if (kmh != null && max != null && kmh <= max) state.overSaid = false;
-    return;
-  }
-  // Warn once per excursion, after it has lasted a few seconds - not on every GPS blip.
-  if (!state.overSince) state.overSince = clock.ms();
-  if (!state.overSaid && clock.ms() - state.overSince > 3000) {
-    say('over', { chime: [880, 880] });
-    state.overSaid = true;
-  }
+  const r = state.over({ t: clock.ms(), kmh, limit: judged(state.shown && state.shown.limit, state.pending) });
+  $('speed').classList.toggle('over', r.red);
+  $('panel').classList.toggle('over', r.red);
+  if (!r.say) return;
+  const sign = r.say.tier === 'bien_bao', chime = sign ? [880, 880] : [660, 660];
+  if (r.say.level === 'over') { say(sign ? 'over' : 'over-law', { chime }); return; }
+  say('slow', { chime });
+  say(sign ? signLine(r.say.max) : lawLine(r.say.max), { queue: true });
 }
 
 // The screen stays on while the app is open, except once a trip has ended: a phone left in
@@ -1560,7 +1568,7 @@ function offlineStatus(done, total, failed = 0) {
 
 // ---------- start ----------
 
-// Straight onto the map, parked. ?demo=q7 runs a demo drive at once, and ?auto turns to
+// Straight onto the map, parked. ?demo=cuchi runs a demo drive at once, and ?auto turns to
 // the drive screen without waiting for movement - with a pinned ?at= position, for checking
 // the drive screen at a desk. Neither can speak until the screen is touched.
 async function boot() {
@@ -1586,7 +1594,7 @@ async function boot() {
   } catch {
     $('roadName').textContent = 'Không tải được dữ liệu bản đồ';
   }
-  if (params.has('demo')) { startDemo(DEMOS[params.get('demo')] ? params.get('demo') : 'q7'); return; }
+  if (params.has('demo')) { startDemo(DEMOS[params.get('demo')] ? params.get('demo') : 'cuchi'); return; }
   startPositions();
   if (params.has('auto')) toDrive({ auto: true });
 }
