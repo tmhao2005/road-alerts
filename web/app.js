@@ -472,6 +472,7 @@ async function startDemo(key) {
   stopPositions();
   forget();
   state.demo = key;
+  loadSigns();
   if (d.vehicle && d.vehicle !== state.vehicle) { state.vehicleBefore = state.vehicle; state.vehicle = d.vehicle; }
   let route = null, marks = [], scenes = [];
   if (d.route) {
@@ -655,6 +656,7 @@ function endDemo() {
   state.timer = null;
   state.demo = null;
   state.pilot = null;
+  loadSigns();
   if (state.vehicleBefore) { state.vehicle = state.vehicleBefore; state.vehicleBefore = null; renderTiles(); }
   clock.stop();
   forget();
@@ -757,10 +759,11 @@ function tilesLoading(fix) {
 
 // ---------- taught signs ----------
 
-// Every sign the driver has taught, worked out again from all their answers. A demo keeps
-// its answers in memory, so it can teach itself without touching a real drive's.
+// Every sign the driver has taught, worked out again from all their answers. A demo's
+// answers are kept in memory and only ever apply to demos: the demos run on real streets,
+// so a 30 made up on the Tâm Anh demo would otherwise be announced on the real Cộng Hòa.
 function loadSigns() {
-  state.signs = signsFrom([...disk.get('learned', []), ...scratch.get('learned', [])]);
+  state.signs = signsFrom([...disk.get('learned', []), ...(state.demo ? scratch.get('learned', []) : [])]);
 }
 
 // A taught sign overrides the map from where it stands until it stops applying. Going past
