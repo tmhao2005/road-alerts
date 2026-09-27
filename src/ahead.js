@@ -23,10 +23,15 @@ export function limitsAhead(walk, judge, shown, options, taught = []) {
   let run = null; // where the current stretch of one value began
   for (const leg of walk.legs) {
     const own = judge(leg.piece);
+    // Where a value can change: where this leg starts, and where a taught stretch starts or ends.
+    const edges = [leg.start, ...taught.flatMap((r) => [r.from, r.to])];
     for (let s = leg.start; s < leg.end; s += STEP) {
       const t = taught.find((r) => s >= r.from && s < r.to);
       const value = t ? t.value : own;
-      if (!run || run.value.key !== value.key) run = { value, dist: s };
+      // Dated from the edge that changed it, not the step that noticed. The steps move with
+      // the car, and the HUD knows a sign by where it stands: one that moved every fix was
+      // drawn afresh each time while the last one faded, a flickering stack of the same sign.
+      if (!run || run.value.key !== value.key) run = { value, dist: Math.max(...edges.filter((d) => d <= s)) };
       const step = Math.min(STEP, leg.end - s);
       const r = next(value, step);
       if (r.changed && value.max != null) {

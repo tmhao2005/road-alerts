@@ -170,8 +170,14 @@ test('a reviewed answer is dated when it was given', () => {
 test('the signs ahead follow a taught stretch, not the pieces under it', () => {
   const judge = () => ({ key: '60|theo_luat', max: 60 });
   const value = { key: '30|nguoi_bao', max: 30 };
-  const out = limitsAhead(walk, judge, judge(), undefined, [{ from: 100, to: 300, value }]);
-  assert.deepEqual(out.map((l) => [Math.round(l.dist), l.value.max]), [[100, 30], [300, 60]]);
+  const out = limitsAhead(walk, judge, judge(), undefined, [{ from: 103.4, to: 298.2, value }]);
+  assert.deepEqual(out.map((l) => [l.dist, l.value.max]), [[103.4, 30], [298.2, 60]]);
+  // The same sign seen from 2 m further on stands on the same spot: the HUD knows a sign by
+  // where it stands, and one that moved with every fix was drawn again each time.
+  const moved = 0.02 * M; // 0.00002° further north
+  const later = walkAhead(pieces, { piece: road1, seg: 1, t: 0.22 }, 0, REACH, pt(10.80122));
+  const again = limitsAhead(later, judge, judge(), undefined, [{ from: 103.4 - moved, to: 298.2 - moved, value }]);
+  assert.deepEqual(again.map((l) => l.at.map((x) => x.toFixed(5))), out.map((l) => l.at.map((x) => x.toFixed(5))));
   // Without it, nothing changes on this road.
   assert.deepEqual(limitsAhead(walk, judge, judge()), []);
 });
