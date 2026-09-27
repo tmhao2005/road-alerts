@@ -77,3 +77,12 @@ export function withSign(vehicleKey, statutory, signMax) {
   if (v.cap && signMax > v.cap) notes.push(`Biển ghi ${signMax}, nhưng ${v.capRule} giới hạn xe này ở ${v.cap}`);
   return { max, rule: 'Biển báo trên bản đồ', notes, tier: 'bien_bao', statutoryMax: statutory.max };
 }
+
+// A sign the driver taught overrides the map the way a mapped sign does. One reading, once,
+// is a report and keeps a tier of its own; a second answer agreeing with the first makes
+// it as good as a sign on the map.
+export function withTaught(vehicleKey, statutory, sign) {
+  const r = withSign(vehicleKey, statutory, sign.max);
+  if (r.tier !== 'bien_bao') return r;
+  return { ...r, rule: 'Biển bạn đã báo', tier: sign.seen >= 2 ? 'bien_bao' : 'nguoi_bao' };
+}

@@ -45,6 +45,13 @@ export function lawLine(max) {
   return { id: LIMIT_STEPS.includes(max) ? `law-${max}` : null, text: `Theo luật, ${max}`, voice: 'hedged' };
 }
 
+// A sign the driver reported and no second answer has confirmed. It was read off a real
+// sign, so it is not hedged the way the law is; the words say whose reading it was, in
+// the same shape as "Theo luật", which is what Hao picked by ear over "Bạn đã báo".
+export function toldLine(max) {
+  return { id: LIMIT_STEPS.includes(max) ? `told-${max}` : null, text: `Theo bạn báo, ${max}`, voice: 'told' };
+}
+
 export function lightLine(crossing) {
   return FIXED.find((f) => f.id === (crossing ? 'light-crossing' : 'light'));
 }
@@ -56,5 +63,6 @@ export function allLines() {
     ...FIXED,
     ...LIMIT_STEPS.map(signLine),
     ...LIMIT_STEPS.map(lawLine),
+    ...LIMIT_STEPS.map(toldLine),
   ];
 }

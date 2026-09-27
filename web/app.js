@@ -15,15 +15,16 @@ import { makeOverWatch, judged } from './src/over.js';
 import { makeMotion } from './src/motion.js';
 import { makeAutopilot } from './src/autopilot.js';
 import { makeFixFiller } from './src/fix.js';
-import { VEHICLES } from './src/limit.js';
-import { metresPerDegree } from './src/geo.js';
+import { VEHICLES, statutoryLimit, withTaught } from './src/limit.js';
+import { signsFrom, passed, signsOn, stretchEnd, onStretch, lessonFrom, REACH } from './src/learn.js';
+import { metresPerDegree, metres } from './src/geo.js';
 import { daylight } from './src/sun.js';
 import { makeStillness, lastChange, pending, retain, stood, whenLabel, STILL, GAP_MS, MOVING_KMH } from './src/trip.js';
 import { makeHud } from './hud.js';
 import { makeReview } from './review.js';
 import { attachGestures } from './gestures.js';
 import { makeVoice } from './voice.js';
-import { signLine, lawLine, lightLine, FIXED } from './src/phrases.js';
+import { signLine, lawLine, toldLine, lightLine, FIXED } from './src/phrases.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -138,6 +139,10 @@ const state = {
   walk: null,
   over: makeOverWatch(),
   pending: null,     // a higher limit the badge is still waiting on
+  signs: [],         // the signs the driver has taught, from learn.js
+  stretch: null,     // the taught sign in force: { sign, walk, end, open, law, s }
+  left: null,        // the one that stopped applying last: { id, max, at }
+  roadAt: null,      // the car's point on the road at the previous fix
   trip: null,        // the trip being driven: { id, start, end, vehicle, built, scratch }
   trace: [],         // its snapshots, every 5 s and at every event
   window: [],        // the last 30 s of fixes, once a second: what a report carries
@@ -663,7 +668,7 @@ function forget() {
   Object.assign(state, {
     fill: makeFixFiller(), motion: makeMotion(), prev: null, track: null, trackFrom: null, trackFix: null, heading: null, headingBefore: null, current: null, last: null,
     stillScene: false, roadName: null, metaKey: null, stab: makeStabiliser(), shown: null, walk: null,
-    over: makeOverWatch(), pending: null,
+    over: makeOverWatch(), pending: null, stretch: null, left: null, roadAt: null,
   });
   setHere(null);
 }
@@ -717,7 +722,7 @@ function place(fix, step) {
   } else m = matchLive(pieces, fix, state.prev, bike());
   if (m) {
     state.prev = m.piece;
-    const r = evaluate(m.piece, state.index, state.vehicle);
+    const r = taught(evaluate(m.piece, state.index, state.vehicle), m, pieces);
     state.current = r;
     const s = state.stab({ key: keyOf(r), max: r.limit.max, tier: r.limit.tier }, step);
     // A higher limit is judged by from the first fix on it, though the badge waits to show
@@ -748,6 +753,67 @@ function place(fix, step) {
 
 function tilesLoading(fix) {
   return tilesAround(fix.lon, fix.lat).some((k) => { const t = state.tiles.get(k); return t && t.then; });
+}
+
+// ---------- taught signs ----------
+
+// Every sign the driver has taught, worked out again from all their answers. A demo keeps
+// its answers in memory, so it can teach itself without touching a real drive's.
+function loadSigns() {
+  state.signs = signsFrom([...disk.get('learned', []), ...scratch.get('learned', [])]);
+}
+
+// A taught sign overrides the map from where it stands until it stops applying. Going past
+// it is what puts it in force, as it is for the driver: a drive that starts beyond it
+// never saw it.
+function taught(r, m, pieces) {
+  const at = snapped(m), from = state.roadAt;
+  state.roadAt = at;
+  let st = state.stretch;
+  if (st) {
+    const s = onStretch(st, at);
+    if (s == null) {
+      state.left = { id: st.sign.id, max: st.sign.max, at };
+      st = state.stretch = null;
+    } else {
+      st.s = s;
+      // Out of road to look along, not at an end: look on from here.
+      if (st.open && st.end - s < 300) st = state.stretch = stretchFrom(st.sign, m, pieces, st.law, at);
+    }
+  }
+  const sign = passed(state.signs, from, at);
+  if (sign && (!st || st.sign !== sign)) st = state.stretch = stretchFrom(sign, m, pieces, r.limit.max, at);
+  if (!st) return r;
+  const limit = withTaught(state.vehicle, statutoryLimit(state.vehicle, { ...r.road, inside: r.zone.inside }), st.sign);
+  return { ...r, law: r.limit, limit, taught: { id: st.sign.id, max: st.sign.max, s: Math.round(st.s) } };
+}
+
+function stretchFrom(sign, m, pieces, law, at) {
+  const walk = walkAhead(pieces, m, state.heading ?? sign.heading, REACH, at, bike());
+  return { sign, walk, law, s: 0, ...stretchEnd(walk, sign, { pieces, law, signs: state.signs }) };
+}
+
+// Where taught signs hold the road ahead, so a sign drawn on the shoulder promises only
+// what the badge will do. Each stretch gives way to the next one along.
+function taughtAhead(walk, pieces, judge) {
+  const out = [];
+  const st = state.stretch, r = state.current;
+  if (st && r && r.taught) out.push({ from: -Infinity, to: st.open ? Infinity : st.end - st.s, value: { key: keyOf(r), max: r.limit.max } });
+  for (const { sign, s } of signsOn(walk, state.signs.filter((x) => !st || x !== st.sign))) {
+    const leg = walk.legs.find((l) => s <= l.end) || walk.legs[walk.legs.length - 1];
+    const here = judge(leg.piece).r;
+    const limit = withTaught(state.vehicle, statutoryLimit(state.vehicle, { ...here.road, inside: here.zone.inside }), sign);
+    const { end, open } = stretchEnd(walk, sign, { pieces, law: here.limit.max, signs: state.signs, start: s });
+    out.push({ from: s, to: open ? Infinity : end, value: { key: keyOf({ limit }), max: limit.max } });
+  }
+  for (let i = 0; i < out.length - 1; i++) out[i].to = Math.min(out[i].to, out[i + 1].from);
+  return out;
+}
+
+// The taught sign that stopped applying shortly before the car got here, if any.
+function leftNear(fix) {
+  const l = state.left;
+  return l && fix && metres(l.at, [fix.lon, fix.lat]) < 600 ? { id: l.id, max: l.max } : null;
 }
 
 // The road ahead: one walk feeds the drawn road, the lights and the shoulder signs, so
@@ -795,12 +861,12 @@ function ahead(pieces, m, fix, shownValue) {
     let j = state.judged.get(piece);
     if (!j) {
       const r = evaluate(piece, state.index, state.vehicle);
-      j = { key: keyOf(r), max: r.limit.max };
+      j = { key: keyOf(r), max: r.limit.max, r };
       state.judged.set(piece, j);
     }
     return j;
   };
-  const limits = limitsAhead(walk, judge, shownValue);
+  const limits = limitsAhead(walk, judge, shownValue, undefined, taughtAhead(walk, pieces, judge));
   state.hudLimit = (limits.find((l) => l.dist > 15) || {}).value?.max ?? null;
   const bearingAt = (d) => {
     for (let i = 1; i < walk.pts.length; i++) if (walk.dist[i] >= d) return bearingOf(walk.pts[i - 1], walk.pts[i]);
@@ -868,7 +934,7 @@ function piecesAround(lon, lat) {
 // ---------- screen ----------
 
 const CONF = { cao: 'chắc', trung_binh: 'khá chắc', thap: 'không chắc' };
-const TIER = { bien_bao: ['Biển báo', 'sign'], theo_luat: ['Theo luật', 'law'] };
+const TIER = { bien_bao: ['Biển báo', 'sign'], theo_luat: ['Theo luật', 'law'], nguoi_bao: ['Bạn báo', 'rep'] };
 
 // Parked, the card says how sure the limit is and where; driving, what kind of road it is.
 function homeMeta(r) {
@@ -913,6 +979,7 @@ function setTier(tier) {
   const el = $('tier');
   el.className = 'tier';
   if (tier === 'bien_bao') { el.textContent = 'Biển báo'; el.classList.add('sign-tier'); }
+  else if (tier === 'nguoi_bao') { el.textContent = 'Bạn báo'; el.classList.add('rep'); }
   else if (tier === 'theo_luat') { el.textContent = 'Theo luật'; el.classList.add('law'); }
   else if (tier == null) el.textContent = 'Đang tải';
   else el.textContent = state.shown && state.shown.limit.barred ? 'Cấm xe máy' : state.shown && state.shown.road.expressway ? 'Xem biển cao tốc' : 'Chưa rõ';
@@ -1199,12 +1266,19 @@ $('app').addEventListener('pointerdown', () => {
 // and, now the lines are recorded rather than synthesised, an unhurried delivery that
 // eases off the number instead of landing on it.
 // No number, no voice.
+//
+// A sign the driver taught is a third voice: read off a real sign, so not hedged like the
+// law, but in words that say whose reading it is.
 function announce(r, queue = false) {
   const max = r.limit.max;
   if (max == null) return;
   state.said = keyOf(r);
-  if (r.limit.tier === 'bien_bao') say(signLine(max), { chime: [988, 1319], queue });
-  else say(lawLine(max), { chime: [660], queue });
+  const tier = r.limit.tier;
+  say(lineFor(tier, max), { chime: tier === 'bien_bao' ? [988, 1319] : tier === 'nguoi_bao' ? [988] : [660], queue });
+}
+
+function lineFor(tier, max) {
+  return tier === 'bien_bao' ? signLine(max) : tier === 'nguoi_bao' ? toldLine(max) : lawLine(max);
 }
 
 // Its own falling two-note cue, so a light is recognisable before the words start and
@@ -1221,10 +1295,11 @@ function checkOver(kmh) {
   $('speed').classList.toggle('over', r.red);
   $('panel').classList.toggle('over', r.red);
   if (!r.say) return;
-  const sign = r.say.tier === 'bien_bao', chime = sign ? [880, 880] : [660, 660];
-  if (r.say.level === 'over') { say(sign ? 'over' : 'over-law', { chime }); return; }
+  // A taught sign is still a sign: "theo luật" would be untrue of it.
+  const law = r.say.tier !== 'bien_bao' && r.say.tier !== 'nguoi_bao', chime = law ? [660, 660] : [880, 880];
+  if (r.say.level === 'over') { say(law ? 'over-law' : 'over', { chime }); return; }
   say('slow', { chime });
-  say(sign ? signLine(r.say.max) : lawLine(r.say.max), { queue: true });
+  say(lineFor(r.say.tier, r.say.max), { queue: true });
 }
 
 // The screen stays on while the app is open, except once a trip has ended: a phone left in
@@ -1296,6 +1371,9 @@ function snapshot(type, fix = state.last, kmh = null) {
     zone: r ? { inside: r.zone.inside, confidence: r.zone.confidence, reason: r.zone.reason } : null,
     now: r ? { max: r.limit.max, tier: r.limit.tier, rule: r.limit.rule } : null,
     shown: s ? { max: s.limit.max, tier: s.limit.tier, rule: s.limit.rule } : null,
+    law: r && r.law ? { max: r.law.max, tier: r.law.tier } : null,
+    taught: r && r.taught ? r.taught : null,
+    left: leftNear(fix),
   };
 }
 
@@ -1411,6 +1489,19 @@ function saveReport(r) {
   const next = { ...r, sentAt: null };
   if (i >= 0) list[i] = next; else list.push(next);
   d.set('reports', list);
+  learn(r);
+}
+
+// Each answer is kept as a lesson, under the report's id so a changed answer replaces it,
+// and the signs are worked out again. Lessons are not reports: they outlive the week a
+// report is kept for, and clearing the trip log leaves them alone.
+function learn(r) {
+  const d = home(r);
+  const lessons = d.get('learned', []).filter((l) => l.id !== r.id);
+  const l = lessonFrom(r);
+  if (l) lessons.push(l);
+  d.set('learned', lessons);
+  loadSigns();
 }
 
 // Before trips there was one flat log. It becomes a trip of its own, and any Sai in it
@@ -1606,6 +1697,7 @@ function offlineStatus(done, total, failed = 0) {
 async function boot() {
   migrate();
   tidy();
+  loadSigns();
   renderTiles();
   renderGreet();
   renderPending();

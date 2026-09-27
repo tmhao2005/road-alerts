@@ -21,7 +21,7 @@ const WAIT = 2500;     // how long a line waits for its clip before giving up an
 const LIKELY = ['60', '50', '40', '80', '30', '70', '90', '100', '120'];
 function soonest(ids) {
   const rank = (id) => {
-    const n = id.replace(/^(sign|law)-/, '');
+    const n = id.replace(/^(sign|law|told)-/, '');
     if (n === id) return 0; // the fixed lines: start, light, over, logged
     const i = LIKELY.indexOf(n);
     return i < 0 ? 99 : 1 + i;

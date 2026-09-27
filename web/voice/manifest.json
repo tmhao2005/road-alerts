@@ -38,7 +38,7 @@
       "note": "reads male, smooth"
     }
   ],
-  "built": "2026-09-26T03:45:43.933Z",
+  "built": "2026-09-27T05:06:54.400Z",
   "ids": [
     "start",
     "start-demo",
@@ -95,6 +95,30 @@
     "law-105",
     "law-110",
     "law-115",
-    "law-120"
+    "law-120",
+    "told-5",
+    "told-10",
+    "told-15",
+    "told-20",
+    "told-25",
+    "told-30",
+    "told-35",
+    "told-40",
+    "told-45",
+    "told-50",
+    "told-55",
+    "told-60",
+    "told-65",
+    "told-70",
+    "told-75",
+    "told-80",
+    "told-85",
+    "told-90",
+    "told-95",
+    "told-100",
+    "told-105",
+    "told-110",
+    "told-115",
+    "told-120"
   ]
 }

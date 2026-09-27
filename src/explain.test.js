@@ -50,3 +50,26 @@ test('a limit from a mapped sign points at the sign, not at the statute', () => 
   assert.deepEqual(explain(signed, 50, statutoryLimit), { cause: 'mapsign', max: 50 });
   assert.deepEqual(explain(signed, 80, statutoryLimit), { cause: 'sign', max: 80 });
 });
+
+// Under a 30 the driver taught, on a road the law puts at 50.
+const taught = { ...city, now: { max: 30 }, shown: { max: 30, tier: 'nguoi_bao' }, law: { max: 50 } };
+
+test('under a taught sign, the law\'s number means the sign had stopped applying', () => {
+  const far = { ...taught, taught: { max: 30, s: 400 } };
+  assert.deepEqual(suggestions(far, statutoryLimit), [{ max: 50, cause: 'ended' }]);
+  assert.deepEqual(explain(far, 50, statutoryLimit), { cause: 'ended', max: 50 });
+  assert.deepEqual(explain(far, 'none', statutoryLimit), { cause: 'ended' });
+  assert.deepEqual(explain(far, 40, statutoryLimit), { cause: 'sign', max: 40 });
+  assert.deepEqual(explain(far, 30, statutoryLimit), { cause: 'same', max: 30 });
+});
+
+test('no sign just past a taught one means it is not there at all', () => {
+  const close = { ...taught, taught: { max: 30, s: 80 } };
+  assert.deepEqual(explain(close, 'none', statutoryLimit), { cause: 'gone' });
+});
+
+test('just past where a taught sign ended, its own number says it runs on', () => {
+  const after = { ...city, left: { max: 30 } };
+  assert.deepEqual(suggestions(after, statutoryLimit)[0], { max: 30, cause: 'still' });
+  assert.deepEqual(explain(after, 30, statutoryLimit), { cause: 'still', max: 30 });
+});

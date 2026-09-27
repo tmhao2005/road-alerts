@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { statutoryLimit, withSign, column } from './limit.js';
+import { statutoryLimit, withSign, column, withTaught } from './limit.js';
 
 const twoWay = { divided: false, oneway: false, lanes: 2 };
 const divided = { divided: true, oneway: true, lanes: 2 };
@@ -88,4 +88,13 @@ test('tiers: statute when there is no sign, unknown when there is no number at a
 
 test('an unknown vehicle is an error, not a silent default', () => {
   assert.throws(() => statutoryLimit('xe_dap', twoWay), /unknown vehicle/);
+});
+
+test('a taught sign is a report until a second answer agrees with it', () => {
+  const law = statutoryLimit('oto_con', { expressway: false, divided: false, oneway: false, lanes: 2, inside: false });
+  assert.deepEqual([withTaught('oto_con', law, { max: 30, seen: 1 }).max, withTaught('oto_con', law, { max: 30, seen: 1 }).tier], [30, 'nguoi_bao']);
+  assert.equal(withTaught('oto_con', law, { max: 30, seen: 2 }).tier, 'bien_bao');
+  // A xe gắn máy keeps its own ceiling under a taught 60, as under a mapped one.
+  const moped = statutoryLimit('xe_gan_may', { expressway: false, inside: false });
+  assert.equal(withTaught('xe_gan_may', moped, { max: 60, seen: 1 }).max, 40);
 });

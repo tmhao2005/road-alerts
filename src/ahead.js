@@ -11,18 +11,22 @@ import { pointAt } from './path.js';
 const STEP = 5; // metres per stabiliser step; far finer than GPS fixes, so no change is missed
 
 // walk: path.js walkAhead's result. judge(piece) -> { key, max, ... } for that piece.
-// shown: the { key, max } on the badge now. Returns [{ dist, at, bearing, value }], where
-// dist is where the new value starts, not where the badge will switch.
-export function limitsAhead(walk, judge, shown, options) {
+// shown: the { key, max } on the badge now. taught: [{ from, to, value }], stretches of the
+// walk where a sign the driver taught overrides the pieces. Returns
+// [{ dist, at, bearing, value }], where dist is where the new value starts, not where the
+// badge will switch.
+export function limitsAhead(walk, judge, shown, options, taught = []) {
   if (!shown) return [];
   const next = makeStabiliser(options);
   next(shown, 0);
   const out = [];
   let run = null; // where the current stretch of one value began
   for (const leg of walk.legs) {
-    const value = judge(leg.piece);
-    if (!run || run.value.key !== value.key) run = { value, dist: leg.start };
+    const own = judge(leg.piece);
     for (let s = leg.start; s < leg.end; s += STEP) {
+      const t = taught.find((r) => s >= r.from && s < r.to);
+      const value = t ? t.value : own;
+      if (!run || run.value.key !== value.key) run = { value, dist: s };
       const step = Math.min(STEP, leg.end - s);
       const r = next(value, step);
       if (r.changed && value.max != null) {

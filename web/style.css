@@ -90,7 +90,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .road-meta { margin-top: 3px; font-size: 14px; color: var(--muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .road-meta .t { font-weight: 700; }
-.t.law { color: var(--law-fg); } .t.sign { color: var(--sign-fg); } .t.unk { color: var(--unk-fg); }
+.t.law { color: var(--law-fg); } .t.sign { color: var(--sign-fg); } .t.unk { color: var(--unk-fg); } .t.rep { color: var(--rep-fg); }
 .swap-in { animation: swap-in 0.5s var(--spring) both; }
 @keyframes swap-in { from { transform: translateY(10px); opacity: 0; filter: blur(4px); } to { transform: none; opacity: 1; filter: none; } }
 /* Parked, the limit where the car stands, in small. Driving, the badge has it. */

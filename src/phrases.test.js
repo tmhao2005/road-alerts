@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allLines, signLine, lawLine, lightLine, LIMIT_STEPS, FIXED } from './phrases.js';
+import { allLines, signLine, lawLine, toldLine, lightLine, LIMIT_STEPS, FIXED } from './phrases.js';
 
 test('ids are unique and usable as filenames', () => {
   const ids = allLines().map((l) => l.id);
@@ -11,7 +11,7 @@ test('ids are unique and usable as filenames', () => {
 test('every line has text and a delivery', () => {
   for (const l of allLines()) {
     assert.ok(l.text.length > 0, l.id);
-    assert.ok(['plain', 'calm', 'urgent', 'caution', 'sure', 'hedged'].includes(l.voice), l.id);
+    assert.ok(['plain', 'calm', 'urgent', 'caution', 'sure', 'hedged', 'told'].includes(l.voice), l.id);
   }
 });
 
@@ -19,6 +19,15 @@ test('every line has text and a delivery', () => {
 test('a signposted limit and a statutory one are delivered differently', () => {
   assert.notEqual(signLine(60).voice, lawLine(60).voice);
   assert.notEqual(signLine(60).text, lawLine(60).text);
+});
+
+// And a sign only the driver has reported sounds like neither.
+test('a taught limit is its own line', () => {
+  const told = toldLine(60);
+  for (const other of [signLine(60), lawLine(60)]) {
+    assert.notEqual(told.voice, other.voice);
+    assert.notEqual(told.text, other.text);
+  }
 });
 
 // Speaking a number the map invented is still better than silence, so an odd value keeps

@@ -10,9 +10,8 @@ source, and the core speed function exists with a coordinate tester for TP.HCM. 
 app is the product for now, used by the household from the iPhone home screen: it opens on
 a map of where the car is, turns into a forward road view with the limit, lights ahead and
 voice when the car drives off, and keeps the whole TP.HCM map on the phone (~16 MB, fetched
-in the background) so it works without signal. The next piece
-of work is making a driver's answers to Sai correct their own phone (see
-[Next steps](#next-steps)).
+in the background) so it works without signal. A driver's answers to Sai now correct
+their own phone. The next piece of work is the test drive (see [Next steps](#next-steps)).
 
 ---
 
@@ -450,10 +449,10 @@ plates at đông dân cư boundaries.
 3. ~~Traffic-light warning~~ — done: in the test app, the simulator, and the trip log.
 4. ~~Home screen~~ — done: the app opens parked on the map, and a tap on the vehicle or
    driving off starts the drive.
-5. **Answers correct your own phone:** a limit given on a Sai card replaces the app's
-   number on that stretch the next time this phone passes it, labelled as the driver's
-   own report. Most driving is the same few routes, so a commute gets right within a week,
-   with no server.
+5. ~~Answers correct your own phone~~ — done: a number given on a Sai card becomes a sign
+   this phone announces from the next drive ("Theo bạn báo, 30", badge "Bạn báo"), held to
+   the next real junction as QCVN 41:2024 khoản 26.8–26.9 has it. Later answers move its
+   end, extend it or remove it. No server; the answers stay on the phone (`src/learn.js`).
 6. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
    QL13 near Bến Cát. After the 2025 ward mergers those stretches sit inside large
    *phường*, so they are where the đông dân cư guess is weakest. The city streets also

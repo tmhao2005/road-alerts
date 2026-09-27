@@ -34,6 +34,7 @@ const limitFor = (vehicle, road) => statutoryLimit(vehicle, road);
 const asked = (r) => ({
   vehicle: r.vehicle, road: r.facts, zoneConfidence: r.zone && r.zone.confidence,
   now: r.now || { max: null }, shown: r.shown || { max: null },
+  taught: r.taught || null, left: r.left || null, law: r.law || { max: null },
 });
 
 // ---------- drawing ----------
@@ -109,10 +110,12 @@ function roadsSvg(pieces, proj) {
 
 function tierOf(limit) {
   if (!limit || limit.max == null) return { text: 'Chưa rõ', cls: '' };
+  if (limit.tier === 'nguoi_bao') return { text: 'Bạn báo', cls: 'rep' };
   return limit.tier === 'bien_bao' ? { text: 'Biển báo', cls: 'sign-tier' } : { text: 'Theo luật', cls: 'law' };
 }
 
 function reasonLine(r) {
+  if (r.taught) return 'Biển bạn đã báo ở đây lần trước';
   if (r.shown && r.shown.tier === 'bien_bao') return 'Biển này có trên bản đồ OpenStreetMap';
   const f = r.facts || {};
   const zone = r.zone ? `${r.zone.inside ? 'trong' : 'ngoài'} khu đông dân cư (${CONF[r.zone.confidence] || 'chưa rõ'})` : 'chưa rõ khu dân cư';
@@ -124,6 +127,8 @@ const wide = (f) => f.divided === true || (f.oneway === true && f.lanes >= 2);
 
 function caption(r, cause) {
   if (cause === 'lag') return 'app đã tính ra';
+  if (cause === 'ended') return 'nếu đã hết biển';
+  if (cause === 'still') return 'nếu biển vẫn còn';
   if (cause === 'mapsign') return 'nếu biển đã bị gỡ';
   if (cause === 'zone') return r.facts.inside ? 'nếu ngoài khu dân cư' : 'nếu trong khu dân cư';
   return wide(r.facts) ? 'nếu không phải đường đôi' : 'nếu là đường đôi';
@@ -133,9 +138,19 @@ function fact(label, value, n, ok, strike = !ok) {
   return `<div class="fact ${ok ? 'ok' : 'no'} ${strike ? 'strike' : ''}"><span class="f-l">${label}</span><span class="f-v">${esc(value)}</span><span class="f-n">${n != null ? `<span class="mini-sign">${n}</span>` : ''}${ok ? CHECK : ''}</span></div>`;
 }
 
+// What the app will do differently from the next drive, when the answer taught it a sign.
+function learnedHtml(r, ex) {
+  if (typeof ex.max !== 'number' || ['lag', 'same', 'ended', 'still'].includes(ex.cause)) return '';
+  return `<div class="learned"><span class="mini-sign">${ex.max}</span><span>Lần sau qua đây, app sẽ báo <b>${ex.max}</b> từ chỗ biển đứng đến giao lộ kế tiếp.</span></div>`;
+}
+
 // The explanation, in the driver's terms: which fact was wrong, what the answer taught,
 // and what, if anything, the driver can still add.
 function whyHtml(r, ex, stretches) {
+  return whyBody(r, ex, stretches) + learnedHtml(r, ex);
+}
+
+function whyBody(r, ex, stretches) {
   const s = r.shown && r.shown.max, a = ex.max, inside = r.facts.inside;
   const similar = stretches.length
     ? `<button type="button" class="similar">${FORK}<span>Quy tắc này còn dùng ở <b>${stretches.length} chỗ khác</b> trong chuyến</span><span class="go">Xem</span></button>`
@@ -161,6 +176,17 @@ function whyHtml(r, ex, stretches) {
     case 'sign':
       return `<h4>Có biển ${a} ở đây mà bản đồ chưa có</h4>
         <p>Không quy tắc nào của luật ra ${a}, nên đây là biển riêng ghi đè luật. Kéo biển trên bản đồ đến đúng chỗ nó đứng.</p>${boundary}`;
+    case 'gone':
+      return `<h4>Biển ${s} bạn báo có vẻ không còn ở đây</h4>
+        <p>App sẽ thôi báo ${s} ở chỗ này và dùng lại số theo luật.</p>`;
+    case 'ended':
+      return `<h4>Biển ${s} đã hết hiệu lực trước chỗ này</h4>
+        <div class="facts">${fact('App giữ', 'Biển bạn báo', s, false)}${fact('Ở đây', a != null ? 'Theo luật' : 'Không có biển', a ?? null, true)}</div>
+        <p>Lần sau app sẽ thôi báo ${s} trước chỗ này. Nếu nhớ chỗ có biển hết hạn chế, kéo biển trên bản đồ đến đó.</p>${boundary}`;
+    case 'still':
+      return `<h4>Biển ${a} còn hiệu lực xa hơn app nghĩ</h4>
+        <div class="facts">${fact('App', 'Thôi báo ở giao lộ trước', s, false)}${fact('Ở đây', 'Vẫn là biển bạn báo', a, true)}</div>
+        <p>Lần sau app sẽ giữ ${a} qua chỗ này, đến giao lộ kế tiếp.</p>`;
     case 'same':
       return `<h4>Biển ghi đúng số app nói</h4>
         <p>Có thể bấm nhầm — hoặc app đổi số sai chỗ. Nếu nhớ biển đứng đâu, kéo biển trên bản đồ đến đó.</p>`;
@@ -365,7 +391,7 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
           <rect width="${W}" height="${H}" fill="var(--map-bg)"/>
           ${roadsSvg(around, proj)}
           <polyline class="trail" fill="none" stroke="var(--map-trail)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-          <polyline class="stretch ${tier.cls === 'sign-tier' ? 'sign' : 'law'}" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+          <polyline class="stretch ${tier.cls === 'sign-tier' ? 'sign' : tier.cls === 'rep' ? 'rep' : 'law'}" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
           <g class="car"><circle r="9" fill="rgba(0,0,0,0.12)" cy="1.5"/><circle r="7.5" fill="#fff"/><circle r="5.2" fill="var(--blue)"/></g>
         </svg>
         <div class="rc-tap"><i></i><span>Bạn bấm</span></div>

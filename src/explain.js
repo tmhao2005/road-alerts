@@ -13,8 +13,15 @@
 //   zoneConfidence: 'cao' | 'trung_binh' | 'thap',
 //   now:   the limit the app had computed at the tap, { max }
 //   shown: the limit on screen at the tap, { max, tier }
+//   taught: a sign the driver taught, in force at the tap, { max, s (m past it) }
+//   left:   one that had stopped applying shortly before the tap, { max }
+//   law:    the limit the map and statute give at the tap, { max }
 // }
 // limitFor(vehicle, road) -> { max }
+
+// Metres past a taught sign within which "no sign" means it is not there at all, rather
+// than that it stopped applying before here.
+const GONE = 150;
 
 // The single-fact changes worth testing, each with the road it would make.
 function flips(road) {
@@ -37,6 +44,14 @@ export function suggestions(report, limitFor) {
   };
   // The app already had it right and was still holding the old number.
   if (report.now.max !== report.shown.max) add(report.now.max, 'lag');
+  // Under a sign the driver taught, the suspect is that sign having stopped applying
+  // before here, which puts the law's number back.
+  if (report.taught) {
+    add(report.law.max, 'ended');
+    return out;
+  }
+  // Just past where a taught sign was taken to end, its number is the likeliest: it runs on.
+  if (report.left) add(report.left.max, 'still');
   // A sign on the map overrides the statute, so no statutory fact can explain the number:
   // the suspect is the mapped sign itself, and the statute underneath is the likely truth.
   if (report.shown.tier === 'bien_bao') {
@@ -57,11 +72,15 @@ export function suggestions(report, limitFor) {
 //   column  the map has the road's shape wrong (median, one-way, lanes)
 //   mapsign the map has a sign here that the road no longer has
 //   sign    no single fact explains it: a sign the map does not have
+//   gone    a sign the driver taught is not there
+//   ended   a taught sign had stopped applying before here
+//   still   a taught sign applies further than the app held it
 //   same    the driver's number is the app's number
 //   none    there was no sign, so the statute was all there was to go on
 //   unsure  nothing to learn yet
 export function explain(report, answer, limitFor) {
   if (answer === 'unsure' || answer == null) return { cause: 'unsure' };
+  if (report.taught && answer === 'none') return { cause: report.taught.s <= GONE ? 'gone' : 'ended' };
   if (answer === 'none') return { cause: 'none' };
   if (answer === report.shown.max) return { cause: 'same', max: answer };
   const hit = suggestions(report, limitFor).find((s) => s.max === answer);
