@@ -107,6 +107,14 @@
 .rc-map .stretch.sign { stroke: var(--sign-fg); }
 .rc-map .stretch.rep { stroke: var(--rep-fg); }
 .rc-map .stretch.none { stroke: var(--unk-fg); }
+/* The map and what stands on it move as one when it pulls back to take in a stretch. */
+.rc-frame { position: absolute; inset: 0; transform-origin: 50% 50%; }
+.rc-frame > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+/* Where the answer's sign will hold from the next drive, drawn in once the answer is in. */
+.rc-map .reach { fill: none; stroke: var(--rep-fg); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+.rc-map .reach-end { fill: var(--card); stroke: var(--rep-fg); stroke-width: 3; }
+.rc-map .reaches.draw .reach { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards; }
+.rc-map .reaches.draw .reach-end { transform-box: fill-box; transform-origin: center; animation: pop 0.45s var(--spring) 1s both; }
 .rc-map .loading { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: var(--faint); font-weight: 600; }
 
 .rc-tap { position: absolute; transform: translate(-50%, -50%); pointer-events: none; }
@@ -229,6 +237,15 @@
   animation: swap-in 0.5s var(--spring) 0.2s both;
 }
 .learned .mini-sign { --s: 30px; flex: none; }
+.learned small { display: block; margin-top: 3px; font-size: 12.5px; color: var(--muted); }
+/* Not an answer to the question, so set apart from them and quiet. */
+.mistap {
+  align-self: center; display: inline-flex; align-items: center; gap: 6px; margin-top: -4px; padding: 8px 12px;
+  border: 0; border-radius: 999px; background: none; color: var(--muted); font-size: 14px; font-weight: 600;
+  transition: transform 0.3s var(--spring), background-color 0.2s ease;
+}
+.mistap:active { transform: scale(0.96); background: var(--bg); }
+.picker.chosen .mistap { opacity: 0.6; }
 .learned b { color: var(--rep-fg); }
 .similar {
   margin-top: 12px; width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;

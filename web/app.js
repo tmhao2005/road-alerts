@@ -16,12 +16,12 @@ import { makeMotion } from './src/motion.js';
 import { makeAutopilot } from './src/autopilot.js';
 import { makeFixFiller } from './src/fix.js';
 import { VEHICLES, statutoryLimit, withTaught } from './src/limit.js';
-import { signsFrom, passed, signsOn, stretchEnd, onStretch, lessonFrom, REACH } from './src/learn.js';
+import { signsFrom, withdrawal, reachOf, passed, signsOn, stretchEnd, onStretch, lessonFrom, REACH } from './src/learn.js';
 import { metresPerDegree, metres } from './src/geo.js';
 import { daylight } from './src/sun.js';
 import { makeStillness, lastChange, pending, retain, stood, whenLabel, STILL, GAP_MS, MOVING_KMH } from './src/trip.js';
 import { makeHud } from './hud.js';
-import { makeReview } from './review.js';
+import { makeReview, reachMap, reachWords } from './review.js';
 import { attachGestures } from './gestures.js';
 import { makeVoice } from './voice.js';
 import { signLine, lawLine, toldLine, lightLine, FIXED } from './src/phrases.js';
@@ -813,6 +813,109 @@ function taughtAhead(walk, pieces, judge) {
   return out;
 }
 
+// ---------- the list of taught signs ----------
+
+const CHEVRON = '<svg class="chev" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+
+// Under Cài đặt: every sign this phone has been taught, newest first. Only a real drive's
+// answers are listed; a demo's are gone when it ends.
+async function renderTaught() {
+  const box = $('taught');
+  const signs = signsFrom(disk.get('learned', [])).sort((a, b) => Date.parse(b.t) - Date.parse(a.t));
+  $('taughtNote').hidden = !signs.length;
+  if (!signs.length) {
+    box.innerHTML = '<div class="t-empty">Chưa có. Khi app nói sai số, bấm Sai; trả lời lúc xem lại chuyến đi, app sẽ nhớ biển đó cho lần sau.</div>';
+    return;
+  }
+  box.innerHTML = signs.map((s) => `
+    <div class="tsign" data-id="${s.id}">
+      <button type="button" class="t-del" tabindex="-1">Xoá</button>
+      <div class="t-face">
+        <button type="button" class="t-row"><span class="mini-sign">${s.max}</span>
+          <span class="grow"><b>Đang tìm đường…</b><small>&nbsp;</small><small>${esc(taughtWhen(s))}</small></span>${CHEVRON}</button>
+        <div class="t-map"><div></div></div>
+      </div>
+    </div>`).join('');
+  box.querySelectorAll('.tsign').forEach((el, k) => wireTaught(el, signs[k]));
+  // The road and the stretch need the sign's tiles; each row fills in as they arrive.
+  for (const [k, s] of signs.entries()) {
+    const pieces = await piecesAt(s.at[0], s.at[1]);
+    const el = box.children[k];
+    if (!el || el.dataset.id !== String(s.id)) continue;
+    const x = taughtReach(s, pieces);
+    const r = x ? evaluate(x.piece, state.index, state.vehicle) : null;
+    el.querySelector('b').textContent = r ? r.name || r.label : 'Ngoài bản đồ';
+    const w = x ? reachWords(x) : null;
+    el.querySelector('small').textContent = w ? `${w.m}, ${w.to}` : '';
+    el.taught = x && { pieces, x };
+  }
+}
+
+function taughtWhen(s) {
+  const when = whenLabel(s.t, Date.now());
+  return s.seen >= 2 ? `Bạn báo ${when} · đã thấy ${s.seen} lần` : `Bạn báo ${when}`;
+}
+
+// A row follows the finger left to show Xoá, and snaps open or shut on letting go; swiped
+// most of the way across, it goes at once. A tap opens the map of its stretch.
+function wireTaught(el, sign) {
+  const face = el.querySelector('.t-face'), OPEN = 88;
+  let x0 = 0, y0 = 0, at = 0, base = 0, id = null, sliding = false;
+  const set = (x, snap) => { face.classList.toggle('snap', snap); face.style.transform = x ? `translateX(${x}px)` : ''; at = x; };
+  el.shut = () => set(0, true);
+  face.addEventListener('pointerdown', (e) => { id = e.pointerId; x0 = e.clientX; y0 = e.clientY; base = at; sliding = false; });
+  face.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== id) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    if (!sliding) {
+      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        sliding = true; face.setPointerCapture(id);
+        $('taught').querySelectorAll('.tsign').forEach((o) => { if (o !== el && o.shut) o.shut(); });
+      } else if (Math.abs(dy) > 8) { id = null; return; } else return;
+    }
+    // Past closed it resists, as iOS lists do.
+    const x = base + dx;
+    set(x > 0 ? x / 4 : x, false);
+  });
+  const up = (e) => {
+    if (e.pointerId !== id) return;
+    id = null;
+    if (!sliding) return;
+    const w = el.offsetWidth;
+    if (at < -w * 0.55) remove();
+    else set(at < -OPEN / 2 ? -OPEN : 0, true);
+  };
+  face.addEventListener('pointerup', up);
+  face.addEventListener('pointercancel', up);
+  face.querySelector('.t-row').addEventListener('click', (e) => {
+    if (sliding) { sliding = false; return; }
+    if (at) { set(0, true); return; }
+    toggle();
+  });
+  el.querySelector('.t-del').onclick = remove;
+
+  function toggle() {
+    const map = el.querySelector('.t-map'), inner = map.firstElementChild;
+    if (!el.taught) return;
+    const open = !el.classList.contains('open');
+    if (open && !inner.firstChild) inner.innerHTML = reachMap(el.taught.pieces, el.taught.x, sign);
+    map.style.height = `${open ? 0 : inner.offsetHeight + 12}px`;
+    void map.offsetHeight;
+    el.classList.toggle('open', open);
+    map.style.height = `${open ? inner.offsetHeight + 12 : 0}px`;
+  }
+
+  // Taken back, not deleted: the answers stay in the list with a withdrawal after them.
+  function remove() {
+    disk.set('learned', [...disk.get('learned', []), ...withdrawal(sign, new Date().toISOString())]);
+    loadSigns();
+    face.classList.add('snap');
+    face.style.transform = `translateX(${-el.offsetWidth}px)`;
+    el.animate([{ height: `${el.offsetHeight}px` }, { height: '0px' }], { duration: 320, delay: 180, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' })
+      .onfinish = () => { el.remove(); if (!$('taught').children.length) renderTaught(); };
+  }
+}
+
 // The taught sign that stopped applying shortly before the car got here, if any.
 function leftNear(fix) {
   const l = state.left;
@@ -869,14 +972,15 @@ function ahead(pieces, m, fix, shownValue) {
     }
     return j;
   };
-  const limits = limitsAhead(walk, judge, shownValue, undefined, taughtAhead(walk, pieces, judge));
+  const taughtRuns = taughtAhead(walk, pieces, judge);
+  const limits = limitsAhead(walk, judge, shownValue, undefined, taughtRuns);
   state.hudLimit = (limits.find((l) => l.dist > 15) || {}).value?.max ?? null;
   const bearingAt = (d) => {
     for (let i = 1; i < walk.pts.length; i++) if (walk.dist[i] >= d) return bearingOf(walk.pts[i - 1], walk.pts[i]);
     return state.heading;
   };
   const lights = walk.lights.filter((l) => l.dist <= SHOW_LIGHTS).map((l) => ({ ...l, bearing: bearingAt(l.dist) }));
-  state.hud.setScene({ pieces, at: from, walk, piece: m.piece, lights, limits }, now);
+  state.hud.setScene({ pieces, at: from, walk, piece: m.piece, lights, limits, taught: taughtRuns }, now);
   state.sceneAt = now;
 }
 
@@ -1055,7 +1159,7 @@ function openSheet(id, open) {
 }
 function closeSheets() { openSheet('sheet', false); openSheet('settings', false); }
 $('more').onclick = () => openSheet('sheet', !$('sheet').classList.contains('open'));
-$('homeMore').onclick = () => { renderLogCount(); renderMatch(); renderTheme(); openSheet('settings', true); };
+$('homeMore').onclick = () => { renderLogCount(); renderMatch(); renderTheme(); renderTaught(); openSheet('settings', true); };
 // On trial: which road the car is on, worked out by src/track.js instead of matchLive.
 const trackOn = () => store.get('match', 'live') === 'track';
 function renderMatch() { $('matchVal').textContent = trackOn() ? 'Bật' : 'Tắt'; }
@@ -1495,6 +1599,27 @@ function saveReport(r) {
   learn(r);
 }
 
+// A Sai tapped by mistake. The report goes, and so does anything its answer had taught: that
+// answer was never meant, so it is taken out rather than withdrawn, as a changed answer is
+// replaced.
+function discardReport(r) {
+  const d = home(r);
+  d.set('reports', d.get('reports', []).filter((x) => x.id !== r.id));
+  const lessons = d.get('learned', []);
+  if (lessons.some((l) => l.id === r.id)) { d.set('learned', lessons.filter((l) => l.id !== r.id)); loadSigns(); }
+  renderLogCount();
+  toast('Đã bỏ chỗ bấm nhầm');
+}
+
+// Where a sign would hold, worked out parked: for the review card as the answer is given,
+// and for the list of taught signs.
+function taughtReach(sign, pieces, vehicle = state.vehicle) {
+  const index = state.index;
+  if (!index) return null;
+  const twoWheeler = !!(VEHICLES[vehicle] && VEHICLES[vehicle].twoWheeler);
+  return reachOf(sign, pieces, { lawOf: (p) => evaluate(p, index, vehicle).limit.max, signs: state.signs, bike: twoWheeler });
+}
+
 // Each answer is kept as a lesson, under the report's id so a changed answer replaces it,
 // and the signs are worked out again. Lessons are not reports: they outlive the week a
 // report is kept for, and clearing the trip log leaves them alone.
@@ -1554,19 +1679,24 @@ async function loadMock() {
 
 // ---------- review ----------
 
+// The mapped roads around a point, once its tiles are in: for looking at a place parked.
+async function piecesAt(lon, lat) {
+  if (!state.index) { try { state.index = await (await fetch('tiles/index.json')).json(); } catch { return []; } }
+  await ensureTiles(lon, lat);
+  return piecesAround(lon, lat);
+}
+
 let review = null;
 function openReview(list, from) {
   if (!list.length) return;
   state.reviewFrom = from;
   review = review || makeReview({
     spring: SPRING,
-    pieces: async (lon, lat) => {
-      if (!state.index) { try { state.index = await (await fetch('tiles/index.json')).json(); } catch { return []; } }
-      await ensureTiles(lon, lat);
-      return piecesAround(lon, lat);
-    },
+    pieces: piecesAt,
     trace: (id) => (state.trip && state.trip.id === id ? state.trace : scratch.get(`trace:${id}`, null) || disk.get(`trace:${id}`, null)),
     save: saveReport,
+    discard: discardReport,
+    reach: taughtReach,
     share: exportAll,
     close: () => {
       if (state.mode === 'home') morph(() => renderPending());

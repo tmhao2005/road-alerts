@@ -8,6 +8,8 @@
 // A lesson holds a place and a heading, never an OSM way id: a new map extract cannot
 // orphan it, and the taught layer stays a database of its own beside the OSM one.
 import { metres, bearing, angleBetween, metresPerDegree } from './geo.js';
+import { walkAhead, snapped } from './path.js';
+import { matchLive } from './live.js';
 
 export const NEAR = 60;     // m: answers this close, facing the same way, are about one sign
 export const FACING = 50;   // degrees apart two headings may be and still go the same way
@@ -25,23 +27,34 @@ const ROADS = new Set([
   'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'unclassified',
 ]);
 
-// lesson: { id, t, kind, at: [lon, lat], heading, max?, placed?, sign? }
-//   sign   a sign reading `max` stands at `at`, for traffic heading `heading`
-//   gone   the taught sign `sign` is not there
-//   ended  the taught sign `sign` no longer applied at `at`
-//   still  the taught sign `sign` still applied at `at`
+// lesson: { id, t, kind, at: [lon, lat], heading, max?, placed?, sign?, lesson? }
+//   sign       a sign reading `max` stands at `at`, for traffic heading `heading`
+//   gone       the taught sign `sign` is not there
+//   ended      the taught sign `sign` no longer applied at `at`
+//   still      the taught sign `sign` still applied at `at`
+//   withdrawn  the driver takes back their answer `lesson`, as if never given
 //
-// Returns [{ id, at, heading, max, seen, placed, marks: [{ kind, at }] }].
+// Withdrawn is not gone. Gone says something about the road - the sign is not there - and
+// once answers from several phones are joined it would overrule the others' too. Withdrawn
+// only takes back one's own answer, so a mistaken tap on this phone cannot erase a sign
+// someone else saw.
+//
+// Returns [{ id, at, heading, max, seen, placed, t, marks: [{ kind, at }], lessons: [id] }],
+// t the newest answer about it and lessons every answer it was worked out from.
 export function signsFrom(lessons) {
+  const taken = new Set(lessons.filter((l) => l.kind === 'withdrawn').map((l) => l.lesson));
   const signs = [];
   const same = (l) => (s) => metres(s.at, l.at) <= NEAR && angleBetween(s.heading, l.heading) <= FACING;
   for (const l of [...lessons].sort((a, b) => Date.parse(a.t) - Date.parse(b.t))) {
+    if (l.kind === 'withdrawn' || taken.has(l.id)) continue;
     if (l.kind === 'sign') {
       const s = signs.find(same(l));
-      if (!s) { signs.push({ id: l.id, at: l.at, heading: l.heading, max: l.max, seen: 1, placed: !!l.placed, marks: [] }); continue; }
+      if (!s) { signs.push({ id: l.id, at: l.at, heading: l.heading, max: l.max, seen: 1, placed: !!l.placed, t: l.t, marks: [], lessons: [l.id] }); continue; }
       // The newest answer wins: signs get changed, and roadworks signs come and go.
       s.seen = s.max === l.max ? s.seen + 1 : 1;
       s.max = l.max;
+      s.t = l.t;
+      s.lessons.push(l.id);
       // Where the driver dragged the sign beats where they happened to tap.
       if (l.placed || !s.placed) Object.assign(s, { at: l.at, heading: l.heading, placed: !!l.placed });
     } else if (l.kind === 'gone') {
@@ -49,10 +62,16 @@ export function signsFrom(lessons) {
       if (i >= 0) signs.splice(i, 1);
     } else {
       const s = signs.find((x) => x.id === l.sign);
-      if (s) s.marks.push({ kind: l.kind, at: l.at });
+      if (s) { s.marks.push({ kind: l.kind, at: l.at }); s.lessons.push(l.id); }
     }
   }
   return signs;
+}
+
+// Taking back a taught sign: one withdrawal for each answer it was worked out from, its
+// marks included. Appended, never deleted, so the list stays the one a server could merge.
+export function withdrawal(sign, t) {
+  return sign.lessons.map((id) => ({ id: `w${id}`, t, kind: 'withdrawn', lesson: id }));
 }
 
 // The taught sign the car has just gone past, stepping from road point a to b: its foot
@@ -121,8 +140,9 @@ export function signsOn(walk, signs, start = 0) {
 
 // Where a taught sign stops applying, in metres along a walk that passes it at `start`.
 // law: the limit the map and statute give there, which decides which junctions end it.
-// Returns { end, open }: open when nothing ended it before the walk ran out, so all that
-// is known is that it runs at least that far.
+// Returns { end, open, why }: open when nothing ended it before the walk ran out, so all
+// that is known is that it runs at least that far. why: 'junction', 'sign' (the next taught
+// sign), 'mark' (where the driver said it had ended) or 'open'.
 export function stretchEnd(walk, sign, { pieces, law, signs = [], start = 0 }) {
   const on = (p) => p && p.off <= ON_ROAD && p.s >= start;
   // The driver's own marks, oldest first, each overruling whatever older one it contradicts.
@@ -133,17 +153,48 @@ export function stretchEnd(walk, sign, { pieces, law, signs = [], start = 0 }) {
     if (k.kind === 'ended') { hi = p.s; if (lo >= hi) lo = start; }
     else { lo = Math.max(lo, p.s); if (hi <= lo) hi = Infinity; }
   }
-  let end = hi;
+  let end = hi, why = 'mark';
   // A new speed sign ends the one before it (26.8).
   const next = signsOn(walk, signs.filter((o) => o.id !== sign.id), start + NEAR)[0];
-  if (next) end = Math.min(end, next.s);
+  if (next && next.s < end) { end = next.s; why = 'sign'; }
   const any = law == null || sign.max > law;
   const j = crossings(walk, pieces, any).find((d) => d > lo);
-  if (j != null) end = Math.min(end, j);
+  if (j != null && j < end) { end = j; why = 'junction'; }
   const last = walk.dist[walk.dist.length - 1];
   // A walk that stopped short did so at a junction it could not see through: an end.
-  if (end === Infinity && !walk.open) end = last;
-  return end === Infinity ? { end: last, open: true } : { end, open: false };
+  if (end === Infinity && !walk.open) { end = last; why = 'junction'; }
+  return end === Infinity ? { end: last, open: true, why: 'open' } : { end, open: false, why };
+}
+
+// Where a taught sign holds, worked out with nobody driving past it: from its foot along
+// the road it faces, to where stretchEnd says it stops. For showing the stretch parked - on
+// the review card as the answer is given, and in the list of taught signs.
+// lawOf(piece): the limit the map and statute give on a piece, which decides which
+// junctions end the sign. Returns { walk, end, open, why, piece, cross } or null off the
+// map; cross is the road met where it ends, when that is a junction.
+export function reachOf(sign, pieces, { lawOf = () => null, signs = [], bike = false } = {}) {
+  const fix = { lon: sign.at[0], lat: sign.at[1], acc: ON_ROAD, heading: sign.heading, speed: 10 };
+  const m = matchLive(pieces, fix, null, bike);
+  if (!m) return null;
+  const walk = walkAhead(pieces, m, sign.heading, REACH, snapped(m), bike);
+  const law = lawOf(m.piece);
+  const r = stretchEnd(walk, sign, { pieces, law, signs });
+  const cross = r.why === 'junction' ? crossingAt(walk, pieces, r.end) : null;
+  return { walk, ...r, piece: m.piece, cross };
+}
+
+// The road that meets a walk d metres along it, named ones first and the biggest of those.
+// The road carrying on under its own name is not the road met, only more of the same.
+function crossingAt(walk, pieces, d) {
+  const i = walk.dist.findIndex((x) => Math.abs(x - d) < 0.5);
+  if (i < 0) return null;
+  const [lon, lat] = walk.pts[i];
+  const own = new Set(walk.legs.map((l) => l.piece.id));
+  const names = new Set(walk.legs.map((l) => l.piece.name).filter(Boolean));
+  const rank = [...ROADS];
+  const meet = pieces.filter((p) => !own.has(p.id) && !names.has(p.name) && p.c.some((q) => q[0] === lon && q[1] === lat));
+  meet.sort((a, b) => !!b.name - !!a.name || (rank.indexOf(a.highway) + 1 || 99) - (rank.indexOf(b.highway) + 1 || 99));
+  return meet[0] || null;
 }
 
 // How far into its stretch the car is at road point p, or null once it has turned off the

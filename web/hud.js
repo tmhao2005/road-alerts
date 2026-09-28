@@ -37,7 +37,7 @@ export const THEMES = {
   light: {
     sky: ['#DCE5F0', '#EAEEF3'], ground: ['#EAEEF3', '#F1F2F4'],
     casing: '#CBD0D8', road: '#FFFFFF', minorCasing: '#D9DDE3', minor: '#FAFBFC',
-    ahead: 'rgba(0, 122, 255, 0.13)', aheadEdge: 'rgba(0, 122, 255, 0.55)',
+    ahead: 'rgba(0, 122, 255, 0.13)', aheadEdge: 'rgba(0, 122, 255, 0.55)', taught: 'rgba(175, 82, 222, 0.30)',
     lane: 'rgba(72, 78, 90, 0.42)', centre: '#E2A710', fog: 'rgba(234, 238, 243, ', arrow: '#818993',
     puck: '#007AFF', puckRim: '#FFFFFF', shadow: 'rgba(20, 30, 50, 0.22)',
     pill: 'rgba(255, 255, 255, 0.94)', pillInk: '#1C1C1E', housing: '#2C2C2E', housingRim: 'rgba(255, 255, 255, 0)', pole: '#8E9199',
@@ -45,7 +45,7 @@ export const THEMES = {
   dark: {
     sky: ['#030406', '#0E1014'], ground: ['#0E1014', '#16181C'],
     casing: '#24272D', road: '#3A3D45', minorCasing: '#202227', minor: '#2C2E34',
-    ahead: 'rgba(10, 132, 255, 0.20)', aheadEdge: 'rgba(64, 156, 255, 0.75)',
+    ahead: 'rgba(10, 132, 255, 0.20)', aheadEdge: 'rgba(64, 156, 255, 0.75)', taught: 'rgba(191, 90, 242, 0.34)',
     lane: 'rgba(235, 235, 245, 0.34)', centre: '#B98A0E', fog: 'rgba(14, 16, 20, ', arrow: '#8A919C',
     puck: '#0A84FF', puckRim: '#FFFFFF', shadow: 'rgba(0, 0, 0, 0.5)',
     pill: 'rgba(44, 44, 46, 0.94)', pillInk: '#F2F2F7', housing: '#0B0B0C', housingRim: 'rgba(255, 255, 255, 0.16)', pole: '#6C6E75',
@@ -552,27 +552,71 @@ export function makeHud(canvas, options = {}) {
   // passes beneath. One that goes over a flyover is tinted after the flyovers, all of it:
   // split in two, the halves would not meet where the flyover's own drawing starts.
   // up: which of the two calls this is.
+  //
+  // Where a sign the driver taught holds, the road is tinted its colour instead of blue, so
+  // how far their number reaches is seen at a glance: from the sign to the junction that
+  // ends it. One that runs on past where the walk stops fades out with it, rather than
+  // ending somewhere the app does not know.
   function drawAhead(cam, up = false) {
     const walk = scene.walk;
     if (!walk || walk.pts.length < 2) return;
     if (!!(walk.legs && walk.legs.some((l) => deck(l.piece))) !== up) return;
-    const xy = new Float64Array(walk.pts.length * 2);
-    walk.pts.forEach(([lon, lat], i) => { const p = toXY(lon, lat); xy[2 * i] = p[0]; xy[2 * i + 1] = p[1]; });
-    const runs = clipRuns(cam, xy);
+    const runs = clipRuns(cam, xyAlong(walk, 0, Infinity));
     if (!runs.length) return;
     const half = Math.max((scene.piece ? roadWidth(scene.piece) : 8) / 2, minHalf(3));
     const endRun = runs[runs.length - 1];
     const end = view.project(...endRun[endRun.length - 1]);
     const car = view.project(0, 0);
-    const g = ctx.createLinearGradient(0, car[1], 0, end[1]);
     const fadeFrom = walk.open ? 0.75 : 0.55;
-    g.addColorStop(0, theme.ahead);
-    g.addColorStop(fadeFrom, theme.ahead);
-    g.addColorStop(1, theme.ahead.replace(/[\d.]+\)$/, '0)'));
-    ctx.beginPath();
-    for (const run of runs) ribbonPath(run, half - 0.6);
-    ctx.fillStyle = g;
-    ctx.fill();
+    const tint = (colour) => {
+      const g = ctx.createLinearGradient(0, car[1], 0, end[1]);
+      g.addColorStop(0, colour);
+      g.addColorStop(fadeFrom, colour);
+      g.addColorStop(1, colour.replace(/[\d.]+\)$/, '0)'));
+      return g;
+    };
+    for (const { a, b, taught } of parts(walk.dist[walk.dist.length - 1], scene.taught)) {
+      const rs = a === 0 && b === Infinity ? runs : clipRuns(cam, xyAlong(walk, a, b));
+      if (!rs.length) continue;
+      ctx.beginPath();
+      for (const run of rs) ribbonPath(run, half - 0.6);
+      ctx.fillStyle = tint(taught ? theme.taught : theme.ahead);
+      ctx.fill();
+    }
+  }
+
+  // The walk from a to b metres along it, in local metres.
+  function xyAlong(walk, a, b) {
+    const { pts, dist } = walk, out = [];
+    const lerp = (i, d) => {
+      const f = (d - dist[i - 1]) / (dist[i] - dist[i - 1] || 1);
+      return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
+    };
+    if (a <= 0) out.push(pts[0]);
+    for (let i = 1; i < pts.length; i++) {
+      if (dist[i] <= a) continue;
+      if (dist[i - 1] <= a && a > 0) out.push(lerp(i, a));
+      if (dist[i] >= b) { out.push(lerp(i, b)); break; }
+      out.push(pts[i]);
+    }
+    const xy = new Float64Array(out.length * 2);
+    out.forEach(([lon, lat], i) => { const p = toXY(lon, lat); xy[2 * i] = p[0]; xy[2 * i + 1] = p[1]; });
+    return xy;
+  }
+
+  // The road ahead cut where taught stretches begin and end: [{ a, b, taught }] in order.
+  function parts(len, taught = []) {
+    const out = [];
+    let at = 0;
+    for (const t of [...taught].sort((x, y) => x.from - y.from)) {
+      const from = Math.max(at, t.from), to = Math.min(len, t.to);
+      if (to <= from) continue;
+      if (from > at) out.push({ a: at, b: from, taught: false });
+      out.push({ a: from, b: to >= len ? Infinity : to, taught: true });
+      at = to;
+    }
+    if (at < len) out.push({ a: at, b: Infinity, taught: false });
+    return out.map((p) => ({ ...p, a: p.a <= 0 ? 0 : p.a }));
   }
 
   // Lane lines, only where the map counts the lanes - never which lane goes where, which
@@ -854,14 +898,15 @@ export function makeHud(canvas, options = {}) {
     // Called at each fix. lights and limits carry { at: [lon, lat], bearing }; the
     // renderer stands them on the right shoulder of the road ahead.
     // at: the car's [lon, lat]. walk is null while the direction of travel is unknown.
-    setScene({ pieces, at, walk = null, piece, lights = [], limits = [] }, now) {
+    // taught: [{ from, to }], metres along the walk where a sign the driver taught holds.
+    setScene({ pieces, at, walk = null, piece, lights = [], limits = [], taught = [] }, now) {
       if (!origin && at) { origin = at; m = metresPerDegree(origin[1]); }
       if (!origin) return;
       // A fresh list at every fix, but the pieces in it only change when a tile arrives or
       // the car moves on into another: only then are the arrows laid out again.
       if (pieces.length !== pool.length || pieces[0] !== pool[0] || pieces[pieces.length - 1] !== pool[pool.length - 1]) { layouts.clear(); touching = null; trimmed = new WeakMap(); }
       pool = pieces; poolAt = at;
-      scene = { pieces: [], walk, piece };
+      scene = { pieces: [], walk, piece, taught };
       gather(1100, 550);
       const half = piece ? roadWidth(piece) / 2 : 5;
       // One lamp per junction: a junction is often mapped as a signal node per approach.

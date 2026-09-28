@@ -8,6 +8,7 @@ import { statutoryLimit } from './src/limit.js';
 import { similarStretches, distance, whenLabel } from './src/trip.js';
 import { metresPerDegree } from './src/geo.js';
 import { roadFacts } from './src/lookup.js';
+import { lessonFrom } from './src/learn.js';
 
 const $ = (id) => document.getElementById(id);
 const CONF = { cao: 'chắc', trung_binh: 'khá chắc', thap: 'không chắc' };
@@ -21,6 +22,7 @@ const ARROW = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" strok
 const PERSON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.5"/><path d="M9.5 21v-6l-2-1 1-5h7l1 5-2 1v6z"/></svg>';
 const FORK = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.3 11l7.4-3.8M8.3 13l7.4 3.8"/></svg>';
 const PIN = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+const BIN = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>';
 const UP = '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -49,7 +51,7 @@ function projector(points, w = W, h = H, pad = 70, min = 260) {
   const s = Math.min(w / spanX, h / spanY);
   const halfLon = (w / 2 / s) / m.x, halfLat = (h / 2 / s) / m.y;
   return {
-    s,
+    s, c, m,
     to: (p) => [w / 2 + (p[0] - c[0]) * m.x * s, h / 2 - (p[1] - c[1]) * m.y * s],
     from: (x, y) => [c[0] + (x - w / 2) / s / m.x, c[1] - (y - h / 2) / s / m.y],
     has: (p) => Math.abs(p[0] - c[0]) < halfLon * 1.2 && Math.abs(p[1] - c[1]) < halfLat * 1.2,
@@ -108,6 +110,56 @@ function roadsSvg(pieces, proj) {
     + lines.map((l) => `<polyline points="${l.pts}" fill="none" stroke="var(--map-street)" stroke-width="${l.w[1]}" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
 }
 
+// The walk of a learn.js reach, from its start to where the sign stops applying, as [lon, lat].
+function reachPts(reach) {
+  const { pts, dist } = reach.walk, out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    if (dist[i] < reach.end) { out.push(pts[i]); continue; }
+    const f = (reach.end - dist[i - 1]) / (dist[i] - dist[i - 1] || 1);
+    out.push([pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f]);
+    break;
+  }
+  return out;
+}
+
+// Where a taught sign will hold, drawn along the road in the reported colour, capped where
+// it stops. One the app saw no end to fades out instead: a cap there would promise an end
+// nobody knows.
+function reachSvg(xy, open) {
+  if (xy.length < 2) return '';
+  const g = measure(xy);
+  const line = (f0, f1, o) => `<polyline class="reach" points="${slice(g, f0, f1)}" opacity="${o}" pathLength="1"/>`;
+  if (open) return line(0, 0.7, 1) + [0.7, 0.78, 0.86, 0.94].map((f, k) => line(f, f + 0.08, (0.8 - k * 0.2).toFixed(2))).join('');
+  const end = xy[xy.length - 1];
+  return line(0, 1, 1) + `<circle class="reach-end" cx="${end[0].toFixed(1)}" cy="${end[1].toFixed(1)}" r="5.5"/>`;
+}
+
+// A taught sign's stretch on its own little map, for the list of them: the roads around, the
+// stretch, and the sign standing at its start.
+export function reachMap(pieces, reach, sign, w = W, h = 150) {
+  const pts = reachPts(reach);
+  const proj = projector(pts, w, h, 45, 200);
+  const xy = pts.map(proj.to);
+  const [sx, sy] = xy[0];
+  return `<svg viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <rect width="${w}" height="${h}" fill="var(--map-bg)"/>
+    ${roadsSvg(pieces, proj)}
+    ${reachSvg(xy, reach.open)}
+    <g transform="translate(${sx.toFixed(1)} ${sy.toFixed(1)})"><circle r="13" fill="#fff" stroke="var(--red)" stroke-width="4"/>
+      <text text-anchor="middle" dy="4.5" font-size="11.5" font-weight="800" fill="#15161A">${sign.max}</text></g>
+  </svg>`;
+}
+
+// How far a reach runs and what ends it, in the driver's words.
+export function reachWords(reach) {
+  const m = reach.end >= 950 ? `${(reach.end / 1000).toFixed(1).replace('.', ',')} km` : `${Math.max(10, Math.round(reach.end / 10) * 10)} m`;
+  if (reach.open) return { m: `ít nhất ${m}`, to: 'chưa thấy giao lộ nào phía trước' };
+  if (reach.why === 'sign') return { m, to: 'đến biển bạn báo kế tiếp' };
+  if (reach.why === 'mark') return { m, to: 'đến chỗ bạn báo đã hết biển' };
+  const name = reach.cross && reach.cross.name;
+  return { m, to: name ? `đến giao lộ ${esc(name)}` : 'đến giao lộ kế tiếp' };
+}
+
 function tierOf(limit) {
   if (!limit || limit.max == null) return { text: 'Chưa rõ', cls: '' };
   if (limit.tier === 'nguoi_bao') return { text: 'Bạn báo', cls: 'rep' };
@@ -138,16 +190,21 @@ function fact(label, value, n, ok, strike = !ok) {
   return `<div class="fact ${ok ? 'ok' : 'no'} ${strike ? 'strike' : ''}"><span class="f-l">${label}</span><span class="f-v">${esc(value)}</span><span class="f-n">${n != null ? `<span class="mini-sign">${n}</span>` : ''}${ok ? CHECK : ''}</span></div>`;
 }
 
-// What the app will do differently from the next drive, when the answer taught it a sign.
-function learnedHtml(r, ex) {
+// What the app will do differently from the next drive, when the answer taught it a sign:
+// the stretch drawn on the map, in words. Until the sign is dragged to where it stood, the
+// phone takes it to stand where Sai was tapped, a little past the real one.
+function learnedHtml(r, ex, reach) {
   if (typeof ex.max !== 'number' || ['lag', 'same', 'ended', 'still'].includes(ex.cause)) return '';
-  return `<div class="learned"><span class="mini-sign">${ex.max}</span><span>Lần sau qua đây, app sẽ báo <b>${ex.max}</b> từ chỗ biển đứng đến giao lộ kế tiếp.</span></div>`;
+  const w = reach ? reachWords(reach) : null;
+  const where = w ? `trên đoạn tô tím: <b>${w.m}</b>, ${w.to}` : 'từ chỗ biển đứng đến giao lộ kế tiếp';
+  const late = reach && !r.signAt ? '<small>Tính từ chỗ bạn bấm. Kéo biển về đúng chỗ nó đứng để app báo sớm hơn.</small>' : '';
+  return `<div class="learned"><span class="mini-sign">${ex.max}</span><span>Lần sau qua đây, app sẽ báo <b>${ex.max}</b> ${where}.${late}</span></div>`;
 }
 
 // The explanation, in the driver's terms: which fact was wrong, what the answer taught,
 // and what, if anything, the driver can still add.
-function whyHtml(r, ex, stretches) {
-  return whyBody(r, ex, stretches) + learnedHtml(r, ex);
+function whyHtml(r, ex, stretches, reach) {
+  return whyBody(r, ex, stretches) + learnedHtml(r, ex, reach);
 }
 
 function whyBody(r, ex, stretches) {
@@ -204,9 +261,11 @@ function whyBody(r, ex, stretches) {
 // pieces(lon, lat) -> Promise of the mapped roads around a point
 // trace(tripId)    -> that trip's trace, or null once it has been let go
 // save(report)     -> persist one report
+// discard(report)  -> forget a report tapped by mistake, and anything its answer taught
+// reach(sign, pieces, vehicle) -> learn.js reachOf for a sign the answer would teach
 // share(reports)   -> send the answers; resolves true once they have gone
 // close()          -> the review is finished with
-export function makeReview({ spring, pieces, trace, save, share, close, remember }) {
+export function makeReview({ spring, pieces, trace, save, discard, reach, share, close, remember }) {
   const root = $('review'), track = $('rvTrack'), deck = $('rvDeck'), dots = $('rvDots'), done = $('rvDone');
   let list = [], idx = 0, cards = [];
 
@@ -221,9 +280,8 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
     deck.hidden = false;
     dots.hidden = list.length < 2;
     $('rvClose').textContent = 'Để sau';
-    const newest = list.reduce((a, r) => (Date.parse(r.t) > Date.parse(a.t) ? r : a), list[0]);
     $('rvTitle').textContent = 'Xem lại chuyến đi';
-    $('rvSub').textContent = `${list.length} chỗ bạn bấm Sai · ${whenLabel(newest.t, Date.now())}`;
+    subtitle();
     track.innerHTML = '';
     // Reports from before this version carry no road facts; the tiles still have them.
     await Promise.all(list.map(async (r) => {
@@ -236,6 +294,35 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
     cards = list.map((r, i) => card(r, i));
     track.replaceChildren(...cards.map((c) => c.el));
     go(0, false);
+  }
+
+  function subtitle() {
+    const newest = list.reduce((a, r) => (Date.parse(r.t) > Date.parse(a.t) ? r : a), list[0]);
+    $('rvSub').textContent = `${list.length} chỗ bạn bấm Sai · ${whenLabel(newest.t, Date.now())}`;
+  }
+
+  // A Sai tapped by mistake: its card falls away and the next one takes its place.
+  function drop(k) {
+    const c = cards[k];
+    c.stop();
+    discard(list[k]);
+    c.el.style.pointerEvents = 'none';
+    c.el.animate([
+      { transform: 'scale(1)', opacity: 1 },
+      { transform: 'scale(0.9) translateY(28px)', opacity: 0 },
+    ], { duration: 300, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' }).onfinish = () => {
+      const w = step();
+      c.el.remove();
+      cards.splice(k, 1);
+      list.splice(k, 1);
+      if (!cards.length) { finish(); return; }
+      subtitle();
+      dots.hidden = list.length < 2;
+      cards.forEach((x) => x.label());
+      // The card behind slides over from where it stood, rather than appearing in place.
+      if (k < cards.length) { track.style.transition = 'none'; track.style.transform = `translateX(${-k * w + w}px)`; void track.offsetWidth; }
+      go(Math.min(k, cards.length - 1));
+    };
   }
 
   function finish() {
@@ -356,6 +443,7 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
           <div class="pk-top">${sugg.map((s) => `<button type="button" class="pick" data-a="${s.max}"><span class="mini-sign">${s.max}</span><small>${caption(r, s.cause)}</small></button>`).join('')}</div>
           <div class="pk-rest">${rest.map((n) => `<button type="button" class="pick" data-a="${n}"><span class="mini-sign">${n}</span></button>`).join('')}</div>
           <div class="pk-text"><button type="button" data-a="none">Không có biển</button><button type="button" data-a="unsure">Không nhớ</button></div>
+          <button type="button" class="mistap">${BIN}Bấm nhầm, bỏ chỗ này</button>
         </div>
         <div class="why" hidden></div>
         <div class="rc-actions">
@@ -367,11 +455,11 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
     const map = el.querySelector('.rc-map'), picker = el.querySelector('.picker'), why = el.querySelector('.why');
     const yours = el.querySelector('.rc-yours'), next = el.querySelector('.next'), ghost = el.querySelector('.ghost');
     let m = null, raf = 0, replaying = false, drawn = false, played = false;
-    const last = i === list.length - 1;
+    const last = () => list.indexOf(r) === list.length - 1;
 
     function label() {
       const answered = r.answer != null;
-      next.innerHTML = last ? (answered ? 'Xong' : 'Bỏ qua') : `${answered ? 'Tiếp' : 'Bỏ qua'}${ARROW}`;
+      next.innerHTML = last() ? (answered ? 'Xong' : 'Bỏ qua') : `${answered ? 'Tiếp' : 'Bỏ qua'}${ARROW}`;
     }
     label();
 
@@ -386,33 +474,37 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
       const proj = projector(clean);
       const g = measure(clean.map(proj.to));
       const moving = g.len > 6;
+      // The svg and what stands on it share a frame, so the map can pull back to take in a
+      // taught stretch without the sign and the tap marker coming adrift of their roads.
       map.innerHTML = `
-        <svg viewBox="0 0 ${W} ${H}" aria-hidden="true">
-          <rect width="${W}" height="${H}" fill="var(--map-bg)"/>
-          ${roadsSvg(around, proj)}
-          <polyline class="trail" fill="none" stroke="var(--map-trail)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-          <polyline class="stretch ${tier.cls === 'sign-tier' ? 'sign' : tier.cls === 'rep' ? 'rep' : 'law'}" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-          <g class="car"><circle r="9" fill="rgba(0,0,0,0.12)" cy="1.5"/><circle r="7.5" fill="#fff"/><circle r="5.2" fill="var(--blue)"/></g>
-        </svg>
-        <div class="rc-tap"><i></i><span>Bạn bấm</span></div>
-        <div class="map-sign" hidden><div class="stand"><span class="base"></span><span class="pole"></span>
-          <div class="flip"><div class="face front ${shown.max == null ? 'unknown' : ''}">${shown.max ?? '–'}</div><div class="face back"></div></div><span class="hit"></span></div></div>
+        <div class="rc-frame">
+          <svg viewBox="0 0 ${W} ${H}" aria-hidden="true">
+            <rect x="-${W}" y="-${H}" width="${3 * W}" height="${3 * H}" fill="var(--map-bg)"/>
+            <g class="roads">${roadsSvg(around, proj)}</g>
+            <polyline class="trail" fill="none" stroke="var(--map-trail)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            <polyline class="stretch ${tier.cls === 'sign-tier' ? 'sign' : tier.cls === 'rep' ? 'rep' : 'law'}" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+            <g class="reaches"></g>
+            <g class="car"><circle r="9" fill="rgba(0,0,0,0.12)" cy="1.5"/><circle r="7.5" fill="#fff"/><circle r="5.2" fill="var(--blue)"/></g>
+          </svg>
+          <div class="rc-tap"><i></i><span>Bạn bấm</span></div>
+          <div class="map-sign" hidden><div class="stand"><span class="base"></span><span class="pole"></span>
+            <div class="flip"><div class="face front ${shown.max == null ? 'unknown' : ''}">${shown.max ?? '–'}</div><div class="face back"></div></div><span class="hit"></span></div></div>
+        </div>
         <button type="button" class="map-pill rc-time"></button>
         <div class="map-pill rc-dist" hidden></div>`;
       const svg = map.querySelector('svg');
       m = {
-        g, proj, moving, svg,
+        g, proj, moving, svg, route: clean, around, carF: moving ? 0 : 1, reach: null,
+        frame: map.querySelector('.rc-frame'), roads: svg.querySelector('.roads'), reaches: svg.querySelector('.reaches'),
         trail: svg.querySelector('.trail'), stretch: svg.querySelector('.stretch'), car: svg.querySelector('.car'),
-        sign: map.querySelector('.map-sign'), flip: map.querySelector('.flip'),
+        sign: map.querySelector('.map-sign'), flip: map.querySelector('.flip'), tap: map.querySelector('.rc-tap'),
         front: map.querySelector('.front'), back: map.querySelector('.back'),
         time: map.querySelector('.rc-time'), dist: map.querySelector('.rc-dist'),
         change: moving && r.window && r.window.length ? Math.min(0.98, (g.cum[r.changeAt || 0] || 0) / g.len) : 1,
         secs: r.window && r.window.length ? Math.round((Date.parse(r.t) - r.window[0].t) / 1000) : 0,
       };
       if (r.signFrac == null) r.signFrac = m.change;
-      const tap = pointAt(g, 1);
-      const tapEl = map.querySelector('.rc-tap');
-      Object.assign(tapEl.style, { left: pct(tap.x, W), top: pct(tap.y, H) });
+      placeTap();
       m.time.onclick = replay;
       wireDrag();
       setCar(moving ? 0 : 1);
@@ -424,8 +516,13 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
       const p = pointAt(m.g, f);
       Object.assign(m.sign.style, { left: pct(p.x - p.dy * 10, W), top: pct(p.y + p.dx * 10, H) });
     }
-    function setStretch(f0, f1) { m.stretch.setAttribute('points', slice(m.g, f0, f1)); }
+    function setStretch(f0, f1) { m.stretch.setAttribute('points', m.reach ? '' : slice(m.g, f0, f1)); }
+    function placeTap() {
+      const tap = pointAt(m.g, 1);
+      Object.assign(m.tap.style, { left: pct(tap.x, W), top: pct(tap.y, H) });
+    }
     function setCar(f) {
+      m.carF = f;
       const p = pointAt(m.g, f);
       m.car.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`);
       m.trail.setAttribute('points', slice(m.g, 0, f));
@@ -443,6 +540,48 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
       m.time.innerHTML = m.moving ? `${REPLAY} Lúc bấm${r.kmh != null ? ` · ${r.kmh} km/h` : ''}` : `Lúc bấm${r.kmh != null ? ` · ${r.kmh} km/h` : ''}`;
       if (r.placed) showDist();
       if (r.answer != null) apply(r.answer, false);
+    }
+
+    // ---------- the taught stretch ----------
+
+    // The sign the answer teaches, as the phone will keep it, and where it will hold.
+    function reachNow() {
+      if (!m || typeof r.answer !== 'number') return null;
+      const l = lessonFrom(r);
+      if (!l || l.kind !== 'sign') return null;
+      return reach({ id: r.id, at: l.at, heading: l.heading, max: l.max, marks: [] }, m.around, r.vehicle);
+    }
+
+    // Frame the map on the trail and the stretch together. Animated, the new framing starts
+    // out drawn as the old one and eases back, so the map pulls back rather than jumping.
+    function frame(x, animate) {
+      const pts = x ? reachPts(x) : [];
+      const proj = projector([...m.route, ...pts]);
+      const was = m.proj;
+      const k = was.s / proj.s;
+      const tx = ((proj.c[0] - was.c[0]) * was.m.x * was.s) / W * 100;
+      const ty = (-(proj.c[1] - was.c[1]) * was.m.y * was.s) / H * 100;
+      const moved = Math.abs(k - 1) > 0.02 || Math.hypot(tx, ty) > 1;
+      if (moved) {
+        m.proj = proj;
+        m.g = measure(m.route.map(proj.to));
+        m.roads.innerHTML = roadsSvg(m.around, proj);
+        placeTap();
+        setCar(m.carF);
+        placeSign(r.signFrac);
+        if (animate) {
+          // Eased out, not sprung: a map that zooms past where it stops and back reads as a
+          // bounce. What stands on the map keeps its size, as pins do in the map apps.
+          const how = { duration: 800, easing: 'cubic-bezier(0.25, 0.8, 0.25, 1)' };
+          m.frame.animate([{ transform: `translate(${tx}%, ${ty}%) scale(${k})` }, { transform: 'none' }], how);
+          m.tap.animate([{ transform: `translate(-50%, -50%) scale(${1 / k})` }, { transform: 'translate(-50%, -50%)' }], how);
+          m.sign.animate([{ transform: `scale(${1 / k})` }, { transform: 'none' }], how);
+        }
+      }
+      m.reach = x;
+      m.reaches.innerHTML = x ? reachSvg(pts.map(m.proj.to), x.open) : '';
+      m.reaches.classList.toggle('draw', !!(x && animate));
+      setStretch(r.signFrac, 1);
     }
 
     // The seconds before the tap, replayed: the car drives up to where the button was
@@ -499,6 +638,8 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
         m.stretch.classList.toggle('rep', typeof a === 'number');
         m.stretch.classList.toggle('none', a === 'none');
       }
+      const x = reachNow();
+      if (m && !replaying && (x || m.reach)) frame(x, animate);
       if (typeof a === 'number') {
         yours.hidden = false;
         yours.querySelector('.mini-sign').textContent = a;
@@ -507,7 +648,7 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
 
       const tr = trace(r.trip);
       const stretches = tr ? similarStretches(tr, r, ex.cause) : [];
-      why.innerHTML = whyHtml(r, ex, stretches);
+      why.innerHTML = whyHtml(r, ex, stretches, x);
       why.hidden = false;
       if (animate) { why.style.animation = 'none'; void why.offsetWidth; why.style.animation = ''; }
       const sim = why.querySelector('.similar');
@@ -550,6 +691,16 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
         placeSign(r.signFrac);
         setStretch(r.signFrac, 1);
         showDist();
+        // The taught stretch follows the sign as it is dragged: where it stands is where
+        // the phone will start saying its number.
+        if (m.reach) {
+          const p = pointAt(m.g, r.signFrac), [lon, lat] = m.proj.from(p.x, p.y);
+          const kept = r.signAt;
+          r.signAt = { lon, lat };
+          const nx = reachNow();
+          r.signAt = kept;
+          if (nx) { m.reach = nx; m.reaches.classList.remove('draw'); m.reaches.innerHTML = reachSvg(reachPts(nx).map(m.proj.to), nx.open); }
+        }
       });
       const drop = (e) => {
         if (e.pointerId !== drag) return;
@@ -561,14 +712,21 @@ export function makeReview({ spring, pieces, trace, save, share, close, remember
         save(r);
         const mark = why.querySelector('.boundary');
         if (mark) mark.hidden = false;
+        if (m.reach) {
+          const x = reachNow();
+          frame(x, true);
+          const old = why.querySelector('.learned');
+          if (old && x) old.outerHTML = learnedHtml(r, explain(asked(r), r.answer, limitFor), x);
+        }
       };
       m.sign.addEventListener('pointerup', drop);
       m.sign.addEventListener('pointercancel', drop);
     }
 
-    next.onclick = () => (last ? summary() : go(idx + 1));
+    next.onclick = () => (last() ? summary() : go(idx + 1));
+    el.querySelector('.mistap').onclick = () => { if (!replaying) drop(list.indexOf(r)); };
 
-    return { el, draw, enter: () => (drawn ? enter() : draw()), stop: () => cancelAnimationFrame(raf) };
+    return { el, draw, label, enter: () => (drawn ? enter() : draw()), stop: () => cancelAnimationFrame(raf) };
   }
 
   // ---------- same rule, same trip ----------

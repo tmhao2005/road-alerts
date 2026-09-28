@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { signsFrom, passed, along, crossings, stretchEnd, onStretch, headingAt, lessonFrom, signsOn, REACH } from './learn.js';
+import { signsFrom, withdrawal, reachOf, passed, along, crossings, stretchEnd, onStretch, headingAt, lessonFrom, signsOn, REACH } from './learn.js';
 import { walkAhead } from './path.js';
 import { limitsAhead } from './ahead.js';
 
@@ -59,6 +59,31 @@ test('a sign said not to be there is forgotten; marks stay with their sign', () 
   assert.equal(signsFrom([lesson(), lesson({ id: 2, t: '2026-09-28T01:00:00Z', kind: 'gone', sign: 1 })]).length, 0);
 });
 
+test('a withdrawn answer is as if it had never been given', () => {
+  const t = '2026-09-28T01:00:00Z';
+  assert.equal(signsFrom([lesson(), { id: 'w1', t, kind: 'withdrawn', lesson: 1 }]).length, 0);
+  // Withdrawn first and then answered again, the new answer stands.
+  const again = signsFrom([lesson(), { id: 'w1', t, kind: 'withdrawn', lesson: 1 }, lesson({ id: 2, t: '2026-09-29T01:00:00Z', max: 40 })]);
+  assert.deepEqual(again.map((s) => [s.id, s.max, s.seen]), [[2, 40, 1]]);
+});
+
+test('taking back a sign withdraws every answer it came from, its marks too', () => {
+  const lessons = [lesson(), lesson({ id: 2, t: '2026-09-28T01:00:00Z' }), lesson({ id: 3, t: '2026-09-28T02:00:00Z', kind: 'ended', sign: 1, at: pt(10.804) })];
+  const [s] = signsFrom(lessons);
+  assert.deepEqual(s.lessons, [1, 2, 3]);
+  assert.equal(s.t, '2026-09-28T01:00:00Z', 'dated by the newest answer about the sign itself');
+  const back = withdrawal(s, '2026-09-29T01:00:00Z');
+  assert.deepEqual(back.map((l) => [l.kind, l.lesson]), [['withdrawn', 1], ['withdrawn', 2], ['withdrawn', 3]]);
+  assert.equal(signsFrom([...lessons, ...back]).length, 0);
+});
+
+test('withdrawing is not saying the sign is gone: another answer about it stands', () => {
+  // As when two phones' answers are joined: this phone takes its own back, the other's stays.
+  const mine = lesson(), theirs = lesson({ id: 2, t: '2026-09-28T01:00:00Z' });
+  const [s] = signsFrom([mine, theirs, { id: 'w1', t: '2026-09-29T01:00:00Z', kind: 'withdrawn', lesson: 1 }]);
+  assert.deepEqual([s.id, s.seen], [2, 1]);
+});
+
 test('a sign is passed when the car goes by it, its way, beside the road', () => {
   const s = sign();
   assert.equal(passed([s], pt(10.8009), pt(10.8011)), s);
@@ -105,7 +130,27 @@ test('the next taught sign ends the one before it', () => {
 
 test('with nothing to end it within reach, the stretch is open', () => {
   const s = sign({ marks: [{ kind: 'still', at: pt(10.816) }] });
-  assert.deepEqual(stretchEnd(walk, s, { pieces, law: 60 }), { end: REACH, open: true });
+  assert.deepEqual(stretchEnd(walk, s, { pieces, law: 60 }), { end: REACH, open: true, why: 'open' });
+});
+
+test('what ended a stretch is said, so the driver can be told where it stops', () => {
+  assert.equal(stretchEnd(walk, sign(), { pieces, law: 60 }).why, 'junction');
+  assert.equal(stretchEnd(walk, sign({ marks: [{ kind: 'ended', at: [LON + 0.0001, 10.804] }] }), { pieces, law: 60 }).why, 'mark');
+  const next = sign({ id: 2, at: [LON + 0.0001, 10.804], max: 40 });
+  assert.equal(stretchEnd(walk, sign(), { pieces, law: 60, signs: [sign(), next] }).why, 'sign');
+});
+
+test('parked, a taught sign reaches from its foot to the road that ends it, named', () => {
+  const r = reachOf(sign(), pieces, { lawOf: () => 60 });
+  near(r.end, (10.805 - 10.801) * 1000 * M);
+  assert.equal(r.open, false);
+  assert.equal(r.cross.id, 3, 'the tertiary street, not the hẻm before it');
+  assert.equal(r.piece, road1);
+  // Above the law, the hẻm ends it - and it is still named as the road met.
+  const over = reachOf(sign({ max: 80 }), pieces, { lawOf: () => 60 });
+  near(over.end, (10.803 - 10.801) * 1000 * M);
+  assert.equal(over.cross.id, 2);
+  assert.equal(reachOf(sign({ at: [LON + 0.01, 10.801] }), pieces), null, 'off the map');
 });
 
 test('the car stays on the stretch until it turns off or reaches the end', () => {

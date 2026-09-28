@@ -453,6 +453,9 @@ plates at đông dân cư boundaries.
    this phone announces from the next drive ("Theo bạn báo, 30", badge "Bạn báo"), held to
    the next real junction as QCVN 41:2024 khoản 26.8–26.9 has it. Later answers move its
    end, extend it or remove it. No server; the answers stay on the phone (`src/learn.js`).
+   How far each one holds is shown: purple on the road ahead while driving, drawn on the
+   card as the answer is given, and on a map under Cài đặt → Biển bạn đã báo, where a
+   swipe takes one back. A Sai tapped by mistake is dropped from its card with Bấm nhầm.
 6. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
    QL13 near Bến Cát. After the 2025 ward mergers those stretches sit inside large
    *phường*, so they are where the đông dân cư guess is weakest. The city streets also

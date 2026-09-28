@@ -312,6 +312,35 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .cell .val { flex: none; font-size: 14px; color: var(--muted); }
 .cell .act-blue { font-size: 16px; font-weight: 600; color: var(--blue); }
 .cell > svg { flex: none; color: var(--faint); }
+/* The signs this phone has been taught. A row slides left over its Xoá, the way iOS lists
+   do, and opens to show on a map how far its number reaches. */
+.group-note { margin: 7px 14px 0; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+.sheet .group-note + h3 { margin-top: 20px; }
+.tsign { position: relative; overflow: hidden; }
+.tsign + .tsign { border-top: 0.5px solid var(--line); }
+.t-del {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 100%; padding-right: 22px; border: 0;
+  display: flex; align-items: center; justify-content: flex-end;
+  background: #FF3B30; color: #fff; font-size: 16px; font-weight: 600;
+}
+.t-face { position: relative; background: var(--bg); touch-action: pan-y; will-change: transform; }
+.t-face.snap { transition: transform 0.45s var(--spring); }
+.t-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 14px; border: 0; background: none; text-align: left; color: inherit; }
+.t-row .mini-sign { --s: 38px; }
+.t-row .grow { flex: 1; min-width: 0; }
+.t-row b { display: block; font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-row small { display: block; margin-top: 1px; font-size: 13px; color: var(--muted); line-height: 1.35; }
+.t-row small + small { color: var(--faint); font-size: 12px; }
+.t-row .chev { flex: none; color: var(--faint); transition: transform 0.45s var(--spring); }
+.tsign.open .t-row .chev { transform: rotate(90deg); }
+.t-map { overflow: hidden; height: 0; transition: height 0.5s var(--spring); }
+.t-map > div { margin: 0 14px 12px; border-radius: 12px; overflow: hidden; aspect-ratio: 360 / 150; background: var(--map-bg); }
+.t-map svg { display: block; width: 100%; height: 100%; }
+.t-map .reach { fill: none; stroke: var(--rep-fg); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+.t-map .reach-end { fill: var(--card); stroke: var(--rep-fg); stroke-width: 3; }
+.tsign.open .t-map .reach { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 0.8s cubic-bezier(0.4, 0, 0.2, 1) 0.2s forwards; }
+.tsign.open .t-map .reach-end { transform-box: fill-box; transform-origin: center; animation: pop 0.45s var(--spring) 0.9s both; }
+.t-empty { padding: 14px; font-size: 14px; line-height: 1.45; color: var(--muted); }
 .attrib { margin-top: 12px; font-size: 11px; color: var(--faint); text-align: center; }
 
 /* Landscape on a dashboard mount: the road gets the wide side, the numbers a column. */
