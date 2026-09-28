@@ -11,7 +11,8 @@ app is the product for now, used by the household from the iPhone home screen: i
 a map of where the car is, turns into a forward road view with the limit, lights ahead and
 voice when the car drives off, and keeps the whole TP.HCM map on the phone (~16 MB, fetched
 in the background) so it works without signal. A driver's answers to Sai now correct
-their own phone. The next piece of work is the test drive (see [Next steps](#next-steps)).
+their own phone. The next piece of work is a test drive, on a route still to be picked
+(see [Next steps](#next-steps)).
 
 ---
 
@@ -458,12 +459,10 @@ plates at đông dân cư boundaries.
    swipe takes one back. A Sai tapped by mistake is dropped from its card with Bấm nhầm.
    A taught sign goes on the badge as the car passes it, not after the 250 m a higher map
    limit is waited out, and only from the road it stands on.
-6. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
-   QL13 near Bến Cát. After the 2025 ward mergers those stretches sit inside large
-   *phường*, so they are where the đông dân cư guess is weakest. The city streets also
-   check the traffic-light warnings.
-7. **Decide** from the results: launch main roads on the guess, or pay for a survey of
-   main-road boundaries first.
+6. **Test drive** on a route still to be picked. The earlier plan - QL1 near Tân An, QL22
+   near Trảng Bàng and QL13 near Bến Cát - is dropped.
+7. **Decide** from real drives: launch main roads on the đông dân cư guess, or pay for a
+   survey of main-road boundaries first.
 8. **Fix:** where OSM maps one road as alternating pieces with different limits (a stretch
    of Nguyễn Văn Linh alternates 60 and 80), each switch restarts the stabiliser's
    distance, so the badge can stay on a lower limit for 400 m after the road has gone back
