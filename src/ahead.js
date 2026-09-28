@@ -42,3 +42,18 @@ export function limitsAhead(walk, judge, shown, options, taught = []) {
   }
   return out;
 }
+
+// The taught stretches as the road ahead is tinted: joined where the badge rides through
+// what lies between them. A junction a few metres before the next taught sign ends the
+// first in law, but the badge never shows the law's number for those metres and no sign
+// stands there, so a sliver of another colour would promise a change that never comes.
+// taught: [{ from, to }]; limits: limitsAhead's result over the same walk.
+export function tintAhead(taught, limits) {
+  const out = [];
+  for (const t of [...taught].sort((a, b) => a.from - b.from)) {
+    const last = out[out.length - 1];
+    if (last && !limits.some((l) => l.dist >= last.to && l.dist < t.from)) last.to = Math.max(last.to, t.to);
+    else out.push({ from: t.from, to: t.to });
+  }
+  return out;
+}

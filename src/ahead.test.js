@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { limitsAhead } from './ahead.js';
+import { limitsAhead, tintAhead } from './ahead.js';
 
 // legs only matter for their pieces and extents; pts/dist let pointAt place the sign.
 const walk = (legs) => {
@@ -33,4 +33,27 @@ test('a higher limit is only promised once it has held long enough', () => {
 
 test('an unknown limit ahead gets no sign', () => {
   assert.deepEqual(limitsAhead(walk([[{ max: 80 }, 0, 100], [{ max: null }, 100, 600]]), judge, v(80)), []);
+});
+
+// Two taught signs on a 60 road: a 50 the car is under, ended in law by a junction at 300 m,
+// and a 40 whose pole stands `gap` metres past that junction.
+const two = (gap) => {
+  const w = walk([[{ max: 60 }, 0, 1300]]);
+  const taught = [
+    { from: -Infinity, to: 300, value: { key: '50|rep', max: 50 } },
+    { from: 300 + gap, to: 900, value: { key: '40|rep', max: 40 } },
+  ];
+  return { taught, limits: limitsAhead(w, judge, { key: '50|rep', max: 50 }, undefined, taught) };
+};
+
+test('a few metres of law between two taught signs are not tinted: the badge never shows them', () => {
+  const { taught, limits } = two(20);
+  assert.deepEqual(limits.map((l) => [l.dist, l.value.max]), [[320, 40], [900, 60]]);
+  assert.deepEqual(tintAhead(taught, limits), [{ from: -Infinity, to: 900 }]);
+});
+
+test('a stretch of law long enough for the badge to show keeps its gap', () => {
+  const { taught, limits } = two(400);
+  assert.deepEqual(limits.map((l) => [l.dist, l.value.max]).slice(0, 2), [[300, 60], [700, 40]]);
+  assert.deepEqual(tintAhead(taught, limits), [{ from: -Infinity, to: 300 }, { from: 700, to: 900 }]);
 });

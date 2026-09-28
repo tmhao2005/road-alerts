@@ -10,7 +10,7 @@ import { tilesAround, matchLive, evaluate, makeStabiliser, TILE } from './src/li
 import { matchTrack } from './src/track.js';
 import { reachFor, makeLightWatcher } from './src/lights.js';
 import { walkAhead, snapped, junctions, holdAt } from './src/path.js';
-import { limitsAhead } from './src/ahead.js';
+import { limitsAhead, tintAhead } from './src/ahead.js';
 import { makeOverWatch, judged } from './src/over.js';
 import { makeMotion } from './src/motion.js';
 import { makeAutopilot } from './src/autopilot.js';
@@ -980,7 +980,7 @@ function ahead(pieces, m, fix, shownValue) {
     return state.heading;
   };
   const lights = walk.lights.filter((l) => l.dist <= SHOW_LIGHTS).map((l) => ({ ...l, bearing: bearingAt(l.dist) }));
-  state.hud.setScene({ pieces, at: from, walk, piece: m.piece, lights, limits, taught: taughtRuns }, now);
+  state.hud.setScene({ pieces, at: from, walk, piece: m.piece, lights, limits, taught: tintAhead(taughtRuns, limits) }, now);
   state.sceneAt = now;
 }
 
