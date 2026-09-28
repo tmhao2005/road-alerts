@@ -21,6 +21,7 @@ export function limitsAhead(walk, judge, shown, options, taught = []) {
   next(shown, 0);
   const out = [];
   let run = null; // where the current stretch of one value began
+  let inside = null; // the taught stretch the last step was in
   for (const leg of walk.legs) {
     const own = judge(leg.piece);
     // Where a value can change: where this leg starts, and where a taught stretch starts or ends.
@@ -33,7 +34,10 @@ export function limitsAhead(walk, judge, shown, options, taught = []) {
       // drawn afresh each time while the last one faded, a flickering stack of the same sign.
       if (!run || run.value.key !== value.key) run = { value, dist: Math.max(...edges.filter((d) => d <= s)) };
       const step = Math.min(STEP, leg.end - s);
-      const r = next(value, step);
+      // The badge takes a taught sign's number as the car passes it, so its sign is
+      // promised there too, however short the stretch.
+      const r = next(value, step, !!t && t !== inside && Number.isFinite(t.from));
+      inside = t;
       if (r.changed && value.max != null) {
         const p = pointAt(walk, run.dist);
         out.push({ dist: run.dist, at: p.at, bearing: p.bearing, value });

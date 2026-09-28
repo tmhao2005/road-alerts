@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { signsFrom, withdrawal, reachOf, passed, along, crossings, stretchEnd, onStretch, headingAt, lessonFrom, signsOn, REACH } from './learn.js';
+import { signsFrom, withdrawal, reachOf, footOn, passed, along, crossings, stretchEnd, onStretch, headingAt, lessonFrom, signsOn, REACH } from './learn.js';
 import { walkAhead } from './path.js';
 import { limitsAhead } from './ahead.js';
 
@@ -91,6 +91,20 @@ test('a sign is passed when the car goes by it, its way, beside the road', () =>
   assert.equal(passed([s], pt(10.8011), pt(10.8009)), null, 'going the other way');
   assert.equal(passed([sign({ at: [LON + 0.0005, 10.801] })], pt(10.8009), pt(10.8011)), null, '55 m off: another road');
   assert.equal(passed([s], pt(10.8011), pt(10.8011)), null, 'standing still');
+});
+
+test('a sign is passed only from the road it stands on, not a frontage road beside it', () => {
+  // Taught 12 m off the secondary, with a service road running north 22 m the other side.
+  const frontage = { id: 9, highway: 'service', c: [[LON + 0.0002, 10.8], [LON + 0.0002, 10.81]] };
+  const s = sign({ at: [LON + 0.00011, 10.801] });
+  s.foot = footOn(s, [...pieces, frontage]);
+  assert.ok(Math.abs(s.foot[0] - LON) < 1e-9, 'its foot is on the secondary');
+  assert.equal(passed([s], pt(10.8009), pt(10.8011)), s);
+  const side = (lat) => [LON + 0.0002, lat];
+  assert.equal(passed([s], side(10.8009), side(10.8011)), null, 'the frontage road does not pass it');
+  // Without a foot yet, the old allowance still passes it from there.
+  assert.equal(passed([sign({ at: [LON + 0.00011, 10.801] })], side(10.8009), side(10.8011)).id, 1);
+  assert.equal(footOn(sign({ at: [LON + 0.01, 10.801] }), pieces), null, 'off the map');
 });
 
 test('a sign on the outside of a bend is not lost between two steps', () => {

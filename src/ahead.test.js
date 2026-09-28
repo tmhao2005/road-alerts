@@ -57,3 +57,12 @@ test('a stretch of law long enough for the badge to show keeps its gap', () => {
   assert.deepEqual(limits.map((l) => [l.dist, l.value.max]).slice(0, 2), [[300, 60], [700, 40]]);
   assert.deepEqual(tintAhead(taught, limits), [{ from: -Infinity, to: 300 }, { from: 700, to: 900 }]);
 });
+
+test('a taught sign ahead is promised where it stands, however short its stretch', () => {
+  // A 70 taught for 100 m of a 60 road: the badge takes it as the car passes the sign, so
+  // the shoulder sign stands there - where a map piece of 70 would be waited out unseen.
+  const w = walk([[{ max: 60 }, 0, 700]]);
+  const taught = [{ from: 200, to: 300, value: { key: '70|rep', max: 70 } }];
+  assert.deepEqual(limitsAhead(w, judge, v(60), undefined, taught).map((l) => [l.dist, l.value.max]), [[200, 70], [300, 60]]);
+  assert.deepEqual(limitsAhead(walk([[{ max: 60 }, 0, 200], [{ max: 70 }, 200, 300], [{ max: 60 }, 300, 700]]), judge, v(60)), []);
+});

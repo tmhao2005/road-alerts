@@ -14,6 +14,7 @@ import { matchLive } from './live.js';
 export const NEAR = 60;     // m: answers this close, facing the same way, are about one sign
 export const FACING = 50;   // degrees apart two headings may be and still go the same way
 export const ON_ROAD = 30;  // m from the road a stretch follows, and still on it
+export const ON_LINE = 8;   // m from a sign's foot on its own road a car passes it within
 export const REACH = 2000;  // m of road looked along for where a sign stops applying
 const BEHIND = 5;           // m behind a step's start a sign may be and still be passed on it
 
@@ -74,6 +75,19 @@ export function withdrawal(sign, t) {
   return sign.lessons.map((id) => ({ id: `w${id}`, t, kind: 'withdrawn', lesson: id }));
 }
 
+// The foot of a taught sign on the road it stands beside, facing its way: the one road it
+// can be passed from. Taught from where the car was, a sign lies a few metres off its road,
+// and within the 30 m that allows, a frontage road alongside going the same way would pass
+// it too - and put the number in force on the wrong road. null off the map.
+export function footOn(sign, pieces, bike = false) {
+  const m = matchLive(pieces, { lon: sign.at[0], lat: sign.at[1], acc: ON_ROAD, heading: sign.heading, speed: 10 }, null, bike);
+  return m ? snapped(m) : null;
+}
+
+// Where a sign is looked for, and how close a road must come to it: its foot on its own
+// road once footOn has found it, otherwise where it was taught.
+const spot = (s) => (s.foot ? [s.foot, ON_LINE] : [s.at, ON_ROAD]);
+
 // The taught sign the car has just gone past, stepping from road point a to b: its foot
 // lies along the step, beside the road, and it faces the way the car is going. Where two
 // steps meet at an angle, a sign on the outside of the bend projects past the end of one
@@ -86,9 +100,10 @@ export function passed(signs, a, b) {
   const heading = bearing(a, b);
   for (const s of signs) {
     if (angleBetween(s.heading, heading) > FACING) continue;
-    const sx = (s.at[0] - a[0]) * m.x, sy = (s.at[1] - a[1]) * m.y;
+    const [p, near] = spot(s);
+    const sx = (p[0] - a[0]) * m.x, sy = (p[1] - a[1]) * m.y;
     const u = (sx * dx + sy * dy) / len, off = Math.abs(sx * dy - sy * dx) / len;
-    if (u > -BEHIND && u <= len && off <= ON_ROAD) return s;
+    if (u > -BEHIND && u <= len && off <= near) return s;
   }
   return null;
 }
@@ -132,8 +147,9 @@ export function crossings(walk, pieces, any = false) {
 export function signsOn(walk, signs, start = 0) {
   const out = [];
   for (const sign of signs) {
-    const p = along(walk, sign.at);
-    if (p && p.off <= ON_ROAD && p.s > start && angleBetween(p.bearing, sign.heading) <= FACING) out.push({ sign, s: p.s });
+    const [at, near] = spot(sign);
+    const p = along(walk, at);
+    if (p && p.off <= near && p.s > start && angleBetween(p.bearing, sign.heading) <= FACING) out.push({ sign, s: p.s });
   }
   return out.sort((a, b) => a.s - b.s);
 }

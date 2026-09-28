@@ -16,7 +16,7 @@ import { makeMotion } from './src/motion.js';
 import { makeAutopilot } from './src/autopilot.js';
 import { makeFixFiller } from './src/fix.js';
 import { VEHICLES, statutoryLimit, withTaught } from './src/limit.js';
-import { signsFrom, withdrawal, reachOf, passed, signsOn, stretchEnd, onStretch, lessonFrom, REACH } from './src/learn.js';
+import { signsFrom, withdrawal, reachOf, footOn, passed, signsOn, stretchEnd, onStretch, lessonFrom, REACH } from './src/learn.js';
 import { metresPerDegree, metres } from './src/geo.js';
 import { daylight } from './src/sun.js';
 import { makeStillness, lastChange, pending, retain, stood, whenLabel, STILL, GAP_MS, MOVING_KMH } from './src/trip.js';
@@ -726,7 +726,8 @@ function place(fix, step) {
     state.prev = m.piece;
     const r = taught(evaluate(m.piece, state.index, state.vehicle), m, pieces);
     state.current = r;
-    const s = state.stab({ key: keyOf(r), max: r.limit.max, tier: r.limit.tier }, step);
+    // A taught sign just passed goes on the badge there and then, where its purple starts.
+    const s = state.stab({ key: keyOf(r), max: r.limit.max, tier: r.limit.tier }, step, !!r.atSign);
     // A higher limit is judged by from the first fix on it, though the badge waits to show
     // it: otherwise the number turns red as the driver speeds up past the sign. A fix that
     // strays onto a faster side street costs at most a warning held back one fix.
@@ -784,11 +785,16 @@ function taught(r, m, pieces) {
       if (st.open && st.end - s < 300) st = state.stretch = stretchFrom(st.sign, m, pieces, st.law, at);
     }
   }
+  // Which road each sign near the car stands on, found once the tiles around are all in.
+  if (!tilesLoading({ lon: at[0], lat: at[1] })) {
+    for (const x of state.signs) if (x.foot === undefined && metres(x.at, at) < WALK + 100) x.foot = footOn(x, pieces, bike());
+  }
   const sign = passed(state.signs, from, at);
-  if (sign && (!st || st.sign !== sign)) st = state.stretch = stretchFrom(sign, m, pieces, r.limit.max, at);
+  const atSign = !!(sign && (!st || st.sign !== sign));
+  if (atSign) st = state.stretch = stretchFrom(sign, m, pieces, r.limit.max, at);
   if (!st) return r;
   const limit = withTaught(state.vehicle, statutoryLimit(state.vehicle, { ...r.road, inside: r.zone.inside }), st.sign);
-  return { ...r, law: r.limit, limit, taught: { id: st.sign.id, max: st.sign.max, s: Math.round(st.s) } };
+  return { ...r, law: r.limit, limit, taught: { id: st.sign.id, max: st.sign.max, s: Math.round(st.s) }, atSign };
 }
 
 function stretchFrom(sign, m, pieces, law, at) {

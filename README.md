@@ -456,6 +456,8 @@ plates at đông dân cư boundaries.
    How far each one holds is shown: purple on the road ahead while driving, drawn on the
    card as the answer is given, and on a map under Cài đặt → Biển bạn đã báo, where a
    swipe takes one back. A Sai tapped by mistake is dropped from its card with Bấm nhầm.
+   A taught sign goes on the badge as the car passes it, not after the 250 m a higher map
+   limit is waited out, and only from the road it stands on.
 6. **Test drive:** TP.HCM city streets, plus QL1 near Tân An, QL22 near Trảng Bàng and
    QL13 near Bến Cát. After the 2025 ward mergers those stretches sit inside large
    *phường*, so they are where the đông dân cư guess is weakest. The city streets also

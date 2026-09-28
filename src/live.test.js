@@ -65,6 +65,17 @@ test('a higher limit must hold for ~250 m before it replaces the shown one', () 
   assert.equal(r.shown.max, 80);
 });
 
+test('a taught sign just passed is shown at once, higher or lower', () => {
+  const next = makeStabiliser({ down: 40, up: 250 });
+  next(v(60), 0);
+  const up = next(v(70), 5, true);
+  assert.deepEqual([up.changed, up.shown.max, up.pending], [true, 70, null]);
+  assert.equal(next(v(50), 5, true).shown.max, 50);
+  assert.equal(next(v(50), 5, true).changed, false, 'the same number again is no change');
+  // Afterwards the map's pieces are waited out as before.
+  assert.equal(next(v(80), 100).changed, false);
+});
+
 test('a higher limit still being held back is reported', () => {
   const next = makeStabiliser({ down: 40, up: 250 });
   next(v(60), 0);

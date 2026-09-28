@@ -82,11 +82,17 @@ export function evaluate(piece, index, vehicle) {
 // for a while. Being slow to relax is safe; being slow to tighten gets people fined.
 //
 // value: { key, max } (max null = unknown). metres: distance since the previous fix.
+// now: take the value at once - for a sign the driver taught, just passed. It stands at
+// one known spot and cannot flicker the way map pieces do, so there is nothing to wait out.
 // Also returns the value waiting to replace the shown one, if any.
 export function makeStabiliser({ down = 40, up = 250 } = {}) {
   let shown = null, pending = null, travelled = 0;
-  return function next(value, metres = 0) {
-    if (!shown) { shown = value; return { shown, changed: true, pending: null }; }
+  return function next(value, metres = 0, now = false) {
+    if (!shown || now) {
+      const changed = !shown || shown.key !== value.key;
+      shown = value; pending = null; travelled = 0;
+      return { shown, changed, pending: null };
+    }
     if (value.key === shown.key) { pending = null; travelled = 0; return { shown, changed: false, pending }; }
     if (!pending || pending.key !== value.key) { pending = value; travelled = 0; }
     travelled += metres;
